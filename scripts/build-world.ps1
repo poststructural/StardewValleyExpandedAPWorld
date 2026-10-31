@@ -35,6 +35,25 @@ Get-ChildItem -LiteralPath (Join-Path $stage $worldName) -Recurse -Directory -Fi
 $apworld = Join-Path $artifacts $lock.artifacts.apworld
 if (Test-Path $apworld) { Remove-Item -LiteralPath $apworld -Force }
 
+# AP's own build injects container fields into archipelago.json; the world folder in the repo does not carry them,
+# and without compatible_version the loader refuses the archive with "This might be the incorrect world version".
+$manifestPath = Join-Path $stage "$worldName\archipelago.json"
+$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$containerVersion = $lock.apworld_container.version
+if ($null -eq $manifest.compatible_version) {
+    $manifest | Add-Member -NotePropertyName compatible_version -NotePropertyValue $lock.apworld_container.compatible_version -Force
+}
+if ($null -eq $manifest.version) {
+    $manifest | Add-Member -NotePropertyName version -NotePropertyValue $containerVersion -Force
+}
+if ($null -eq $manifest.maximum_ap_version) {
+    $manifest | Add-Member -NotePropertyName maximum_ap_version -NotePropertyValue $lock.upstream.archipelago.tag -Force
+}
+# write JSON the way AP does: plain, no BOM, stable key order
+$json = $manifest | ConvertTo-Json -Depth 5
+[System.IO.File]::WriteAllText($manifestPath, $json, [System.Text.UTF8Encoding]::new($false))
+Write-Host "injected container manifest fields (compatible_version=$($manifest.compatible_version), version=$containerVersion)"
+
 Write-Host "zipping -> $apworld"
 $python = Get-Command python -ErrorAction SilentlyContinue
 if ($python) {

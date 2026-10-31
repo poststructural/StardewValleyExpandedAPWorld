@@ -27,6 +27,11 @@
       "commit": "abbef519890a5d6376a73cc495ffda8f5583be68"
     }
   },
+  "apworld_container": {
+    "$comment": "AP injects these into archipelago.json when it builds an apworld; the world folder in the repo does not carry them. worlds/Files.py container_version is the source of truth.",
+    "compatible_version": 7,
+    "version": 7
+  },
   "artifacts": {
     "apworld": "stardew_valley.apworld",
     "mod_dir": "StardewArchipelago"
