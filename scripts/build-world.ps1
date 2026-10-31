@@ -49,6 +49,21 @@ if ($null -eq $manifest.version) {
 if ($null -eq $manifest.maximum_ap_version) {
     $manifest | Add-Member -NotePropertyName maximum_ap_version -NotePropertyValue $lock.upstream.archipelago.tag -Force
 }
+
+# The mod refuses a slot whose client_version differs from its own ModVersion, and slot data carries
+# world_version verbatim. Stamp the world with the version of the mod we ship alongside it, so the pair can
+# never drift: read it from the fetched mod manifest, fall back to the lock.
+$pairVersion = $lock.pairing.mod_version
+$modManifest = Join-Path $CacheRoot 'stardew_archipelago\StardewArchipelago\manifest.json'
+if (Test-Path $modManifest) {
+    $pairVersion = (Get-Content -LiteralPath $modManifest -Raw | ConvertFrom-Json).Version
+}
+if ($pairVersion) {
+    $manifest | Add-Member -NotePropertyName world_version -NotePropertyValue $pairVersion -Force
+    Write-Host "stamped world_version=$pairVersion (must equal the mod's ModVersion)"
+} else {
+    Write-Warning "no pairing.mod_version in versions.lock and no mod checkout; leaving world_version=$($manifest.world_version)"
+}
 # write JSON the way AP does: plain, no BOM, stable key order
 $json = $manifest | ConvertTo-Json -Depth 5
 [System.IO.File]::WriteAllText($manifestPath, $json, [System.Text.UTF8Encoding]::new($false))

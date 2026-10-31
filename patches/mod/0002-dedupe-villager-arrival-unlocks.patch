@@ -1,0 +1,19 @@
+diff --git a/StardewArchipelago/Items/Unlocks/Vanilla/VillagerUnlockManager.cs b/StardewArchipelago/Items/Unlocks/Vanilla/VillagerUnlockManager.cs
+index 37fe7ba..a7276ef 100644
+--- a/StardewArchipelago/Items/Unlocks/Vanilla/VillagerUnlockManager.cs
++++ b/StardewArchipelago/Items/Unlocks/Vanilla/VillagerUnlockManager.cs
+@@ -24,6 +24,14 @@ namespace StardewArchipelago.Items.Unlocks.Vanilla
+             foreach (var (characterId, characterData) in Game1.characterData)
+             {
+                 var apName = VillagerExistenceInjections.GetArrivalItem(characterId);
++                if (unlocks.ContainsKey(apName))
++                {
++                    // Content mods add their own characters whose internal ids alias to a name that already
++                    // exists (SVE ships Marlon, Gunther, Morris...). Only one arrival letter can exist per
++                    // alias, so the first character wins and later ids are skipped instead of throwing.
++                    continue;
++                }
++
+                 unlocks.Add(apName, (x) => SendVillagerArrivalLetter(x, characterId));
+             }
+         }
