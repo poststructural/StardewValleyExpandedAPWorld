@@ -34,5 +34,9 @@ Copy-Item -Path (Join-Path $binDir '*') -Destination $outDir -Recurse -Force
 $license = Join-Path $CacheRoot 'stardew_archipelago\LICENSE.md'
 if (Test-Path $license) { Copy-Item -LiteralPath $license -Destination (Join-Path $outDir 'LICENSE.md') -Force }
 
+# the csproj uses manifest.json as ApplicationManifest, so it is not part of the build output
+$manifest = Join-Path (Split-Path $project) 'manifest.json'
+if (-not (Test-Path (Join-Path $outDir 'manifest.json'))) { Copy-Item -LiteralPath $manifest -Destination (Join-Path $outDir 'manifest.json') -Force }
+
 $dll = Get-Item (Join-Path $outDir 'StardewArchipelago.dll')
 Write-Host ("built {0} ({1:N0} KB, mod version {2})" -f $outDir, ($dll.Length / 1KB), (Get-Content (Join-Path $outDir 'manifest.json') -Raw | ConvertFrom-Json).Version)

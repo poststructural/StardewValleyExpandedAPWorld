@@ -77,3 +77,33 @@ Stardew Valley:
 
 Mod half of spike 02: build the patched mod with `scripts/build-mod.ps1`, drop it into the testbed,
 connect to this generated seed, and read the SMAPI log for SVE Harmony binding failures.
+
+## Mod half (partial)
+
+Built the patched mod against the testbed (`scripts/build-mod.ps1 -GamePath _testbed\sdv-sve`,
+Debug, **0 errors / 41 warnings**, all analyzer noise) and launched it beside SVE 1.15.11:
+
+```
+[SMAPI]    Stardew Valley Expanded 1.15.11 by FlashShifter, Esca, and kittycatcasey
+[SMAPI]    StardewArchipelago 8.1.12 by Kaito Kid | Stardew Valley Randomizer for Archipelago
+[SMAPI]       Detected game patcher in assembly StardewArchipelago.dll.
+```
+
+Run result: **WARN 0, ERROR 0**. The mod loads next to SVE without argument.
+
+That is not yet a binding test though: every SVE injection in the mod is gated on
+`SlotData.Mods.HasMod(ModNames.SVE)` (see `ModLocationPatcher.AddSVEModInjections`,
+`ModCodeInjectionInitializer`, `ModUnlockManager`, `EntranceManager`, `CompoundNameMapper`,
+`ModRandomizedLogicPatcher`, `VillagerGrabber`), and slot data only exists after connecting. So a
+clean startup only proves the assembly loads, not that the Harmony targets still exist in 1.15.
+
+Two ways to close it:
+
+1. **Real connection** (preferred): start `ArchipelagoServer.exe` on the generated archive, create a
+   save in the testbed, `connect_override <ip>:<port> <slot> <password>` in the SMAPI console. Gives
+   a true end-to-end result including item/location traffic.
+2. **Forced injection** (used for this spike, reverted afterwards): temporarily make `HasMod` return
+   true for SVE, rebuild, and load a save so the patchers run. Fast, but it exercises code paths with
+   empty slot data, so failures can be artefacts of the hack.
+
+Next action: option 1 against the 492-location seed already generated.
