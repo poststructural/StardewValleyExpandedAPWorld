@@ -107,3 +107,41 @@ Two ways to close it:
    empty slot data, so failures can be artefacts of the hack.
 
 Next action: option 1 against the 492-location seed already generated.
+
+## Mod half — connected, first pass clean
+
+With `world_version` paired and patch 0002 applied, loading the save against the running server gives:
+
+```
+[StardewArchipelago] Connected to Archipelago server as SVE_Spike (Team 0).
+[StardewArchipelago] StardewArchipelago version '8.1.12' connected to a multiworld generated with APWorld version '8.1.12'
+```
+
+**WARN 5, ERROR 0** for the whole session. The five warnings are all `SlotData did not contain expected
+key` for keys introduced after 7.4.25 (`entrance_randomization_behavior`, `journey_of_the_prairie_king`,
+`junimo_kart`, `help_wanted_quests`, `randomized_data`) — an artefact of pairing a `main` mod with a
+0.6.8-era world, not an SVE problem.
+
+### Bug this exposed (patch 0002)
+
+First attempt threw during `GameLoop.SaveLoaded`, before anything else could initialise:
+
+```
+ArgumentException: An item with the same key has already been added. Key: Marlon Arrival
+   at VillagerUnlockManager.RegisterVillagerUnlocks(VillagerUnlockManager.cs:27)
+   at ItemParser..ctor -> ModEntry.InitializeAfterConnection
+```
+
+`VillagerUnlockManager` registers an arrival unlock for every entry in `Game1.characterData`, keyed by
+the NPC's aliased name. That class is new in 8.x and was written with SVE switched off, so it never met
+the case where two character ids alias to one name — SVE ships its own Marlon, Gunther and Morris. The
+`NullReferenceException` that followed in `DayStarted` was fallout from `ItemParser` never finishing.
+
+`patches/mod/0002-dedupe-villager-arrival-unlocks.patch` skips duplicates. After it, the same load is
+clean.
+
+### Still unverified
+
+A clean startup proves the patches bind; it does not prove behaviour. Still to exercise: SVE location
+checks reaching the server, SVE items being granted, shop replacement, the Nexus warp unlocks, and a
+full day cycle. That is the next pass.
