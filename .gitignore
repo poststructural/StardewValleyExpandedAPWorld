@@ -9,3 +9,6 @@ obj/
 *.zip
 *.log
 TestResults/
+
+# decompiled third-party code: analysis only, never redistributed
+_analysis/
