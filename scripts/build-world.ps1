@@ -4,6 +4,13 @@ param([string]$CacheRoot = (Join-Path $PSScriptRoot "..\.cache"))
 
 $ErrorActionPreference = 'Stop'
 $lock = Get-Content -LiteralPath (Join-Path $PSScriptRoot "..\versions.lock") -Raw | ConvertFrom-Json
+
+function Invoke-Robocopy {
+    param([string]$Source, [string]$Destination)
+    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+    & robocopy $Source $Destination /MIR /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "robocopy failed for $Source -> $Destination (exit $LASTEXITCODE)" }
+}
 $worldName = 'stardew_valley'
 
 $worldSrc = Join-Path $CacheRoot "archipelago\worlds\$worldName"
@@ -16,10 +23,13 @@ New-Item -ItemType Directory -Force -Path (Join-Path $stage $worldName) | Out-Nu
 New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
 
 Write-Host "staging patched world..."
-Copy-Item -Path (Join-Path $worldSrc '*') -Destination (Join-Path $stage $worldName) -Recurse -Force
+# copy the directory itself, not its wildcard contents: Copy-Item -Path "dir\*" silently drops subdirectories
+Invoke-Robocopy $worldSrc (Join-Path $stage $worldName)
 
-# do not ship caches or bytecode that happen to be lying around
-Get-ChildItem -LiteralPath (Join-Path $stage $worldName) -Recurse -Directory -Include '__pycache__' -ErrorAction SilentlyContinue |
+# do not ship caches or bytecode that happen to be lying around.
+# NB: use -Filter, not -Include: with -Recurse, -Include without -Filter matches every directory and the
+# Remove-Item below would delete the whole tree.
+Get-ChildItem -LiteralPath (Join-Path $stage $worldName) -Recurse -Directory -Filter '__pycache__' -ErrorAction SilentlyContinue |
     Remove-Item -Recurse -Force
 
 $apworld = Join-Path $artifacts $lock.artifacts.apworld
