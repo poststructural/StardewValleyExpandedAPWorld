@@ -1,0 +1,11 @@
+# Ignore build scratch and anything derived from the game or from SVE.
+.cache/
+artifacts/
+bin/
+obj/
+.vs/
+*.user
+*.apworld
+*.zip
+*.log
+TestResults/

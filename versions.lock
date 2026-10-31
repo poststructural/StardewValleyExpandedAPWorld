@@ -1,0 +1,34 @@
+{
+  "$comment": "Single source of truth for versions. Bump only with a passing run of docs/compatibility.md.",
+  "validated": "2026-10-31",
+  "game": {
+    "name": "Stardew Valley",
+    "version": "1.6.15",
+    "build": "24356",
+    "smapi": "4.5.2"
+  },
+  "sve": {
+    "version": "1.15.11",
+    "content_patcher": "2.9.1",
+    "farm_type_manager": "1.26.1",
+    "rebuilt_code_dll_required": false
+  },
+  "upstream": {
+    "archipelago": {
+      "repo": "https://github.com/ArchipelagoMW/Archipelago",
+      "tag": "0.6.8",
+      "commit": "54803be064fc7e80c4628777ed0b46a9390f255f",
+      "subdir": "worlds/stardew_valley"
+    },
+    "stardew_archipelago": {
+      "repo": "https://github.com/agilbert1412/StardewArchipelago",
+      "ref": "main",
+      "release": "8.1.12",
+      "commit": "abbef519890a5d6376a73cc495ffda8f5583be68"
+    }
+  },
+  "artifacts": {
+    "apworld": "stardew_valley.apworld",
+    "mod_dir": "StardewArchipelago"
+  }
+}
