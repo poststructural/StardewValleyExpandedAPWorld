@@ -1,0 +1,20 @@
+diff --git a/StardewArchipelago/ModEntry.cs b/StardewArchipelago/ModEntry.cs
+index 81d0217..63b2063 100644
+--- a/StardewArchipelago/ModEntry.cs
++++ b/StardewArchipelago/ModEntry.cs
+@@ -585,7 +585,14 @@ namespace StardewArchipelago
+ 
+         private void OnItemReceived()
+         {
+-            _itemManager?.ReceiveAllNewItems();
++            _logger.Log($"Received-items event fired (item manager: {(_itemManager == null ? "not initialised" : "ready")})", LogLevel.Trace);
++            if (_itemManager == null)
++            {
++                _logger.Log("Received items before the item manager existed - they will be picked up when it is created.", LogLevel.Warn);
++                return;
++            }
++
++            _itemManager.ReceiveAllNewItems();
+         }
+ 
+         public ConnectionResult ArchipelagoConnect(string ip, int port, string slot, string password)

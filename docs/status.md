@@ -23,6 +23,17 @@ Last updated: 2026-10-31, after the first end-to-end session on the SVE testbed.
 | 3 | Patch files written as UTF-16 by PowerShell redirection | regenerate with raw byte redirection |
 | 4 | World/mod version drift → "Please downgrade to a compatible mod version" | `world_version` stamped from the paired mod manifest |
 | 5 | `VillagerUnlockManager` throws `ArgumentException` on duplicate arrival name once SVE adds Marlon/Gunther/Morris | `patches/mod/0002` skips duplicates |
+| 6 | Item receipt was silent — `_itemManager?.ReceiveAllNewItems()` looks identical whether the event never fired or the manager was missing | `patches/mod/0003` logs which of the two happened |
+
+## Item delivery: verified
+
+`!getitem Iridium Fireplace` → server sends `ReceivedItems` at index 7 → client logs
+`Received-items event fired (item manager: ready)` → the item appears **as a letter**, before sleeping.
+
+That last part matters for testing: nearly every AP item for Stardew is delivered through the mail
+system (`APItemManager.ProcessItem` → `ProcessItemAsLetter` → `SendToPlayer`), not the inventory.
+"Checked my bag and nothing was there" is the expected observation, not a failure. Test via the
+mailbox, or via the save file, never the inventory.
 
 ## Known gaps
 
