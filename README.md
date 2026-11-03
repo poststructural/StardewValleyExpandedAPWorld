@@ -11,12 +11,17 @@ mod (`ModVersions.cs`). This repository exists to own that switch, keep it hones
 
 ## Status
 
-| Milestone | State |
+**v0.1.0**: SVE 1.15.11 on Stardew Valley 1.6.15 and Archipelago 0.6.8, on Windows and Mac.
+Players: see [docs/setup.md](docs/setup.md).
+
+| | |
 |---|---|
-| Spike 01 — does SVE 1.15.11 need a rebuilt code DLL? | **No.** Loads natively on SDV 1.6.15 / SMAPI 4.5.2, zero warnings. See [docs/spike-01](docs/spike-01-sve-loads-natively.md) |
-| Spike 02 — do the mod's SVE Harmony patches bind to 1.15.11? | in progress |
-| Content remap (1.15 regions, NPCs, fish, recipes, Frontier Farm) | not started |
-| Version lock + release pipeline | scaffolded, not wired |
+| SVE runs without a rebuilt code DLL | yes ([spike 01](docs/spike-01-sve-loads-natively.md)) |
+| World generates with SVE | yes, upstream's SVE tests plus our own pass in CI on Windows, macOS and Linux |
+| Extra SVE 1.15 checks | 226 new locations across fishsanity, cropsanity, cooksanity, chefsanity, craftsanity, friendsanity (Henchman, Scarlett), museumsanity, shipsanity and eatsanity |
+| Aurora Vineyard / Morgan gating | in the client, by event id ([patch 0004](patches/mod/)) |
+| SVE quest checks reach the server | fixed; they were silently lost before |
+| End-to-end check | `tools/sve-smoketest` drives a real save against a local server; all 9 check paths pass |
 
 The 1.14 integration shipped a rebuilt `StardewValleyExpanded.dll` (`1.14.31-archipelago-1`)
 because that SVE build could not load on SDV 1.6.9+. Spike 01 showed 1.15.11 does not need that, so

@@ -1,10 +1,9 @@
 # Handoff — StardewValleyExpandedAPWorld
 
-Everything a fresh engineer (or agent) needs to take this from "works in a testbed" to "maintainable
-release". Written 2026-11-03 at the point the first end-to-end session passed.
+Everything a fresh engineer (or agent) needs to continue. Rewritten 2026-11-03 after v0.1.0:
+cross-platform tooling, 226 new SVE checks, client-side SVE gating, and an automated in-game test.
 
 ---
-
 ## 1. What this project is
 
 Re-enable **Stardew Valley Expanded** support in the Stardew Valley Archipelago integration, against
@@ -18,40 +17,41 @@ integration, pinned, and owns the drift.
 
 ---
 
-## 2. State at handoff
+## 2. State (v0.1.0, 2026-11-03)
 
-### Proven working (testbed, not speculation)
+### Done this session (all pushed to `main`)
 
-| Layer | Evidence |
-|---|---|
-| SVE 1.15.11 loads on SDV 1.6.15 / SMAPI 4.5.2 with **no rebuilt DLL** | `docs/spike-01-sve-loads-natively.md` |
-| Generator accepts `Stardew Valley Expanded` and produces SVE content | 492 locations vs 472 vanilla, same seed; `docs/spike-02-world-enable.md` |
-| Client connects, version gate passes | `version '8.1.12' connected to a multiworld generated with APWorld version '8.1.12'` |
-| Save loads with every SVE Harmony target bound | WARN 5 / ERROR 0 |
-| Shops repoint, day cycle completes | `StardewArchipelago edited Data/Shops` ×12 on day rollover |
-| Items deliver | `!getitem Iridium Fireplace` → arrives **as a letter** |
-
-### Bugs found and fixed
-
-| # | Bug | Fix |
+| Change | Files | Verified by |
 |---|---|---|
-| 1 | apworld built without `compatible_version`/`version` → registers as 0.0.0, `requires.game` rejects | `scripts/build_world.py` injects them from `versions.lock` |
-| 2 | Packaging dropped subdirectories, then deleted the staged tree | robocopy; `-Filter` not `-Include` |
-| 3 | Patch files written UTF-16 by PowerShell redirection | regenerate with raw byte redirection |
-| 4 | World/mod version drift → "Please downgrade to a compatible mod version" | `world_version` stamped from the paired mod manifest |
-| 5 | `VillagerUnlockManager` threw `ArgumentException` on duplicate arrival name once SVE adds Marlon/Gunther/Morris | `patches/mod/0002` |
-| 6 | Item receipt was silent (`_itemManager?.`) | `patches/mod/0003` traces event + manager state |
+| Repo moved to `poststructural/StardewValleyExpandedAPWorld`, history on the no-reply email | all | push |
+| Python build scripts replace PowerShell; release packager; CI | `scripts/*.py`, `.github/workflows/ci.yml`, `tests/` | apworld byte-identical to the ps1 build except manifest formatting; CI green on ubuntu/windows/macos |
+| fetch_upstream never forces the pin over local patch commits | `scripts/fetch_upstream.py` | ran against the live cache |
+| 1.15 gating in the client, SVE quest-name fix, gates CP pack | `patches/mod/0004`, `0005`, `cp/` | smoke test; Codex review (found the warn-only pack issue, fixed in 0005) |
+| 226 new SVE locations, 20 items | `patches/world/0002`, `scripts/sync_id_tables.py`, `tests/test_sve_names.py` | world suite 1144 passed / 0 failed; new `TestSVE115Content.py` incl. 10-seed max-sanity fills |
+| Automated in-game smoke test | `tools/sve-smoketest/` | 9/9 paths PASS on the release build, every check confirmed in the server log |
+| Player setup guide (Windows + Mac) | `docs/setup.md` | option values checked against `options.py` |
 
-### NOT yet proven
+### What works (proven)
 
-- **SVE location checks reaching the server.** The test seed has only quest-gated SVE checks, so
-  nothing easy to fire. Needs a purpose-built seed (see §6.1).
-- **The AP-gated SVE flags.** `apAuroraVineyard` and `apMorganSchooling` do not exist in SVE 1.15
-  data — they only ever existed in Witchybun's CP patch, which has not been ported.
-- **1.15 content coverage.** 1.15 additions (Frontier Farm, Henchman, Scarlett, 12 fish, 4 crops,
-  ~26 recipes) are unmapped. Not broken — simply not randomized.
+- Generation with `mods: [Stardew Valley Expanded]` on AP 0.6.8; the apworld declares min 0.6.4 / max
+  0.6.8 (a test enforces it).
+- In a real testbed save against a local server: shipsanity, fishsanity, cooksanity, eatsanity,
+  craftsanity, friendsanity (incl. Henchman), museumsanity (new artifacts) and an SVE special order
+  (`Quest: Grandpa's Shed`) all reach the server; items arrive by mail; the Aurora/Morgan events stay
+  locked until their AP items arrive.
+- Release bundle: one zip for Windows and Mac (managed DLLs only, checked by the packager).
 
----
+### Known issues
+
+- `GetQuestOfTheDay_BalanceQuests_Prefix` logs one ERROR per day: the 8.1.12 client expects
+  `help_wanted_quests` slot data that the 7.4.25 world doesn't send. It falls back to vanilla. Same root
+  cause as the 5 slot-data WARNs (§6 item 4).
+- `LostAndFoundInjections.AnyIncomingLetterContainingKey` "Collection was modified": 1 in 4 runs, upstream race.
+- Not exercised in game: donating at the moved Grandpa's Shed drop box (the CP patch applies with no
+  errors), the Robin3-at-2554906 path, the Krobus 10-heart relax rule.
+- **Mac is untested on hardware.** Nothing platform-specific ships, and CI builds and tests the world on macOS.
+- The gate self-check binds 8 of 17 rules on day 1; SVE adds the rest later in the story. Unbound
+  rules log at Debug, not Warn.
 
 ## 3. Repository layout
 
@@ -70,10 +70,18 @@ Current patches:
 
 | Patch | What |
 |---|---|
-| `0001-enable-sve-content-pack` | removes `ModNames.sve` from `disabled_mods` in the world |
-| `0001-enable-sve-and-retire-rebuilt-dll-requirement` | re-enables SVE in `ModVersions.cs`, drops the `AP_CP_SVE` requirement |
-| `0002-dedupe-villager-arrival-unlocks` | duplicate guard in `VillagerUnlockManager` |
-| `0003-trace-received-items` | replaces silent item receipt with a trace + warning |
+| world `0001-enable-sve-content-pack` | removes `ModNames.sve` from `disabled_mods` |
+| world `0002-sve-1.15-content` | 226 SVE locations (ids 90001-90226) + 20 items (90001-90020), logic, tests |
+| mod `0001-enable-sve-and-retire-rebuilt-dll-requirement` | re-enables SVE in `ModVersions.cs` |
+| mod `0002-dedupe-villager-arrival-unlocks` | duplicate guard in `VillagerUnlockManager` |
+| mod `0003-trace-received-items` | item receipt trace + warning |
+| mod `0004-sve-1.15-gates-and-quest-names` | `SVEEventGates` (event gating by id), SVE order to `Quest: ...` names, Henchman alias, dead ids removed |
+| mod `0005-require-sve-gates-pack` | the gates CP pack is required; self-check logs unbound rules at Debug |
+
+Also: `cp/[CP] StardewAP - SVE Gates` (our Grandpa's Shed drop-box pack, no SVE content),
+`tools/sve-smoketest` (automated in-game test), `docs/setup.md` (player guide).
+The `.cache/` checkouts carry each applied patch as a local commit ("apply 000N locally"). The client
+cache has `core.autocrlf=false`: upstream files are CRLF, and autocrlf rewrote whole files in a diff.
 
 ---
 
@@ -118,101 +126,41 @@ Tooling: `dotnet` 10 SDK (builds net6.0 via NuGet targeting pack), Python 3.14 +
 
 ## 6. Work remaining, in priority order
 
-### 6.1 Verify SVE check reporting  ← do this first
+Plan file for all of these: `docs/plans/2026-11-03-check-slop-and-mac.md`.
 
-Currently unproven because the seed has no reachable SVE check.
-
-1. Write a player yaml with `friendsanity`, `shipsanity`, `cropsanity` enabled plus
-   `mods: [Stardew Valley Expanded]`.
-2. Build + generate (see §7), start server on a free port.
-3. New throwaway save, meet an SVE NPC (Andy/Sophia) or ship an SVE item.
-4. Confirm the check arrives server-side (`--log_network` shows `LocationChecks`).
-
-Acceptance: at least one SVE-specific check registered on the server, no client errors.
-
-### 6.2 Port `[CP] StardewAP - SVE Patch` 2.1.2 to 1.15  ← load-bearing
-
-Source: `Witchybun-.../[CP] StardewAP - SVE Patch` (5 JSON files: `Events/ModifiedEventReqs.json`,
-`Maps/GrandpaShedPatch.json` + `.tbin`, `SpecialOrders/GrandpasShed.json`, `i18n`).
-
-Why it matters: `apAuroraVineyard` and `apMorganSchooling` exist **only** here; without them the AP
-gating for Aurora Vineyard and Morgan's schooling is a no-op. Check each hook still exists in 1.15
-(Grandpa's Shed map and special order do; event requirement edits need re-checking against
-`746153081`–`746153087`).
-
-Deliver: a new `patches/cp/` half, built into an installable CP mod, and re-add the
-`ExtraRequirementsVersions` entry in `ModVersions.cs`.
-
-### 6.3 Fix stale identifiers
-
-From `docs/sve-identifier-check.md`:
-
-- `AURORA_EVENT "658059254"` → 1.15 uses `746153081`–`746153087` (`code/OtherEvents/Aurora.json`).
-- `MORGAN_EVENT "658078924"` → find the Morgan schooling event id in 1.15.
-- `Clint2Again` mail flag no longer exists → find the railroad-boulder equivalent.
-- Special-order name scan was inconclusive (walker bug). Fix and re-run before trusting that row.
-
-Entry points: `Locations/CodeInjections/Modded/SVE/SVECutsceneInjections.cs`,
-`Items/Unlocks/Modded/SVEUnlockManager.cs`.
-
-### 6.4 1.15 content mapping
-
-See `docs/sve-1.15-assets.md`: 179 objects, 134 big craftables, 44 fish, 26 cooking recipes,
-12 crops, 12 crafting recipes, 37 NPCs, 71 custom locations, 25 SVE vendors.
-
-Decide per item: already randomized / mis-gated / add / out of scope. Friendsanity is the biggest hole
-(world has ~14 SVE NPCs, 1.15 names ~25 including Henchman, Hank, Treyvon, Jadu, Jolyne, Camilla).
-
-### 6.5 Release plumbing
-
-- artifacts + checksums, install docs, a version gate that tells players which SVE build is expected
-- CI that builds the world and runs `pytest worlds/stardew_valley/test`
-- decide whether to patch AP 0.6.8's 7.4.25 world or move the pin to a world line matching the mod
-
-### 6.6 Knowledge phases 2, 4, 5
-
-See `docs/sve-knowledge-programme.md`. Phase 4 (decompile Witchybun's 1.14.31 build and diff against
-1.15.11) is the biggest single effort and only worth starting once 6.2–6.3 are done.
-
----
+1. **Playtest feedback** from Austin (Windows) and anyone on a Mac; fix what they hit.
+2. **P4 special orders**: A Witch Offering, The Legendary Trio, Townhouse Project, Aurora Vineyard
+   Purchase (`SpecialOrderNames` + injections + world rows). The client blocks SVE's own
+   `UpdateSpecialOrders`, so `MorrisTod2/3`, `LegendaryTrio` and `HenchmanHouseRepaired` are never offered today.
+3. **P4 unmapped areas**: ~35 `Custom_` locations (Zuzu City block) for logic and entrance rando, then
+   the skipped content that needs them (Alligator, Swamp Crab, Diamond Carp, Razor Trout, swamp items).
+4. **World/mod pairing**: the 7.4.25 world with the 8.1.12 client causes the slot-data warnings and
+   the help-wanted ERROR. Either patch the client to tolerate the missing keys, or move the pin to a
+   world line that matches the client.
+5. Smaller: Galdoran Gem, Pineapple Custard Crepe and festival recipes, stale Haste/Hero/Armor Elixir
+   recipe-shop rows, `Aurora Vineyard Reclamation` sharing the tablet's flag, SVE vendor checks.
+6. Knowledge phases 2, 4, 5 (`docs/sve-knowledge-programme.md`).
 
 ## 7. Build and test loop
 
 ```sh
-# 1. sources (first time, or after changing versions.lock)
-python scripts/fetch_upstream.py
-
-# 2. apply the patch series onto the pinned checkouts in .cache/
+python scripts/fetch_upstream.py      # first time / after changing versions.lock
 python scripts/apply_patches.py
+python scripts/build_world.py         # -> artifacts/stardew_valley.apworld
+python scripts/build_mod.py --game-path ../_testbed/sdv-sve   # game closed; syncs id tables first
+python scripts/package_release.py     # -> artifacts/release/ (zip + apworld + SHA256SUMS)
+python -m pytest tests -q
 
-# 3. apworld  -> artifacts/stardew_valley.apworld (stamps world_version from the mod manifest)
-python scripts/build_world.py
+# world tests (py3.12 venv with AP deps at .cache/venv312; AP refuses Python 3.14)
+cd .cache/archipelago && ../venv312/Scripts/python -m pytest worlds/stardew_valley/test -n auto \
+    --ignore=worlds/stardew_valley/test/long --ignore=worlds/stardew_valley/test/performance
 
-# 4. generate a seed with the patched world
-#    swap it into C:\ProgramData\Archipelago\lib\worlds\stardew_valley.apworld (KEEP THE ORIGINAL),
-#    run ArchipelagoGenerate.exe --player_files_path <dir> --outputpath <dir> --seed 1,
-#    then restore the original apworld
-#    player yaml must include:
-#      requires: { version: 0.6.8, game: { Stardew Valley: <mod version> } }
-#      Stardew Valley: { mods: [ Stardew Valley Expanded ] }
-
-# 5. server
-& "C:\ProgramData\Archipelago\ArchipelagoServer.exe" --port 38282 --log_network --disable_save <seed.zip>
-
-# 6. mod  (close the game first: locked DLLs fail the build. build_mod.py passes EnableModDeploy=false and
-#          EnableModZip=false, so it no longer auto-deploys into a Mods folder; copy artifacts/ yourself)
-python scripts/build_mod.py --game-path "_testbed/sdv-sve"
-
-# 6b. release bundle -> artifacts/release/ (needs steps 3 and 6; fails on non-managed binaries)
-python scripts/package_release.py
-
-# 7. launch testbed, load save, read %APPDATA%\StardewValley\ErrorLogs\SMAPI-latest.txt
+# end to end in the real game (~4 min, no human: generates, serves, builds, launches the testbed)
+.cache/venv312/Scripts/python.exe tools/sve-smoketest/run.py --work-dir <scratch dir>
 ```
 
-Known-good numbers to compare against: SVE seed = **492 locations**, vanilla = **472**; testbed run
-should be WARN 5 / ERROR 0 (the 5 are missing post-7.4.25 slot-data keys and are benign).
-
----
+The smoke test hosts from `.cache/archipelago`, not `C:\ProgramData\Archipelago`, and only creates or
+deletes saves named `APSmoke*`. A pass is `OVERALL: PASS` in `<work-dir>/report.txt`.
 
 ## 8. Traps that will cost you an afternoon
 
@@ -252,3 +200,15 @@ should be WARN 5 / ERROR 0 (the 5 are missing post-7.4.25 slot-data keys and are
    appear.
 4. A named maintainer and a stated re-validation turnaround.
 5. The CP patch shipped, so `apAuroraVineyard` / `apMorganSchooling` gating actually works.
+
+---
+
+## 11. Continuation prompt
+
+> Continue the Stardew Valley Expanded Archipelago project in
+> `C:\Users\unowi\Documents\APWorldMaker\StardewValleyExpandedAPIntegration\STE-APWorld`
+> (repo github.com/poststructural/StardewValleyExpandedAPWorld; commit with the no-reply email, no Claude
+> trailer). Read `HANDOFF.md` (§2, §4, §6, §8) and `docs/plans/2026-11-03-check-slop-and-mac.md` first.
+> Next task: §6 item 1 if there is playtest feedback, otherwise item 2 (the four missing SVE special
+> orders). Acceptance: new world rows and client mapping, world suite green, and the smoke test extended
+> with one completion per new order, reporting `OVERALL: PASS`.
