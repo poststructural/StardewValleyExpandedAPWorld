@@ -1,4 +1,4 @@
-# STE-APWorld
+# StardewValleyExpandedAPWorld
 
 Stardew Valley Expanded support for [Archipelago](https://archipelago.gg), maintained against current
 Stardew Valley and current Archipelago.

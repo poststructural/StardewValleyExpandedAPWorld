@@ -1,4 +1,4 @@
-# Handoff — STE-APWorld
+# Handoff — StardewValleyExpandedAPWorld
 
 Everything a fresh engineer (or agent) needs to take this from "works in a testbed" to "maintainable
 release". Written 2026-11-03 at the point the first end-to-end session passed.
@@ -14,7 +14,7 @@ Upstream disabled SVE in `StardewArchipelago 7.3.2` (Dec 2025) because the integ
 rebuilt SVE code DLL on every game update and nobody maintained it. This repo re-enables the existing
 integration, pinned, and owns the drift.
 
-**Repo:** https://github.com/poststructural/STE-APWorld (public, BSD-3, `main`)
+**Repo:** https://github.com/poststructural/StardewValleyExpandedAPWorld (public, BSD-3, `main`)
 
 ---
 
