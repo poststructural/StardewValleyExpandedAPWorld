@@ -1,0 +1,22 @@
+{
+  "Name": "StardewAP - SVE Gates",
+  "Author": "poststructural",
+  "Version": "0.1.0",
+  "Description": "Moves the Grandpa's Shed special order drop box to the always-reachable exterior so Archipelago can grant the shed repair out of order.",
+  "UniqueID": "poststructural.StardewAPSVEGates",
+  "MinimumApiVersion": "4.0.0",
+  "ContentPackFor": {
+    "UniqueID": "Pathoschild.ContentPatcher",
+    "MinimumVersion": "2.9.0"
+  },
+  "Dependencies": [
+    {
+      "UniqueID": "FlashShifter.StardewValleyExpandedCP",
+      "IsRequired": true
+    },
+    {
+      "UniqueID": "KaitoKid.StardewArchipelago",
+      "IsRequired": true
+    }
+  ]
+}

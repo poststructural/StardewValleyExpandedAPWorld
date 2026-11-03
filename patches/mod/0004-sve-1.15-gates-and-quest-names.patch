@@ -1,0 +1,485 @@
+diff --git a/StardewArchipelago/Archipelago/ModsManager.cs b/StardewArchipelago/Archipelago/ModsManager.cs
+index 0028457..a60864f 100644
+--- a/StardewArchipelago/Archipelago/ModsManager.cs
++++ b/StardewArchipelago/Archipelago/ModsManager.cs
+@@ -142,6 +142,12 @@ namespace StardewArchipelago.Archipelago
+                         continue;
+                     }
+ 
++                    if (requirement.WarnOnly)
++                    {
++                        _logger.LogWarning($"Content pack `{requirement.ContentPatcherMod}` [{requirement.ContentPatcherVersion}] is missing or the wrong version (found: {existingVersion}). Some {modName} content will not behave correctly.");
++                        continue;
++                    }
++
+                     problemMods.Add(new MissingMod(requirement.ContentPatcherMod, requirement.ContentPatcherVersion, existingVersion));
+                 }
+             }
+diff --git a/StardewArchipelago/Constants/Modded/ModNames.cs b/StardewArchipelago/Constants/Modded/ModNames.cs
+index 80a2c79..42cf202 100644
+--- a/StardewArchipelago/Constants/Modded/ModNames.cs
++++ b/StardewArchipelago/Constants/Modded/ModNames.cs
+@@ -31,7 +31,7 @@
+         public const string BOARDING_HOUSE = "Boarding House and Bus Stop Extension";
+ 
+         public const string AP_CP_SVE = "Stardew Valley Expanded";
+-        public const string AP_CP_SVE_PATCH = "StardewAP - SVE Patch";
++        public const string AP_CP_SVE_GATES = "StardewAP - SVE Gates";
+         public const string AP_JASPER = "StardewAP - Jasper Patch";
+     }
+ }
+diff --git a/StardewArchipelago/Constants/Modded/ModVersions.cs b/StardewArchipelago/Constants/Modded/ModVersions.cs
+index e2159b5..bfa1eaa 100644
+--- a/StardewArchipelago/Constants/Modded/ModVersions.cs
++++ b/StardewArchipelago/Constants/Modded/ModVersions.cs
+@@ -40,28 +40,28 @@ namespace StardewArchipelago.Constants.Modded
+         {
+             public string ContentPatcherMod { get; private set; }
+             public string ContentPatcherVersion { get; private set; }
++            public bool WarnOnly { get; private set; }
+ 
+-            public ContentPatcherRequirement(string patchName, string patchVersion)
++            public ContentPatcherRequirement(string patchName, string patchVersion, bool warnOnly = false)
+             {
+                 ContentPatcherMod = patchName;
+                 ContentPatcherVersion = patchVersion;
++                WarnOnly = warnOnly;
+             }
+         }
+ 
+         // SVE 1.15.x runs natively on SDV 1.6.15, so the rebuilt "StardewValleyExpanded 1.14.x-archipelago" code DLL
+-        // (ModNames.AP_CP_SVE) is no longer required. The [CP] StardewAP - SVE Patch is being ported to 1.15 and will be
+-        // reinstated here once it exists. See patches/mod and docs/spike-01.
+-        public static readonly Dictionary<string, List<ContentPatcherRequirement>> ExtraRequirementsVersions = new();
+-        /* Previously:
++        // and Witchybun's "[CP] StardewAP - SVE Patch" are no longer used. Our own small pack (cp/ in the repo) adds the
++        // Grandpa's Shed drop box. A missing pack only logs a warning; Grandpa's Shed still works through the ruins.
++        public static readonly Dictionary<string, List<ContentPatcherRequirement>> ExtraRequirementsVersions = new()
+         {
+             {
+                 ModNames.SVE, new List<ContentPatcherRequirement>()
+                 {
+-                    new(ModNames.AP_CP_SVE_PATCH, "2.1.x"),
+-                    new(ModNames.AP_CP_SVE, "1.14.46"),
++                    new(ModNames.AP_CP_SVE_GATES, $"0.1.{WILDCARD}", warnOnly: true),
+                 }
+             },
+-        };*/
++        };
+ 
+         public static readonly Dictionary<string, string> IncompatibleMods = new()
+         {
+diff --git a/StardewArchipelago/Constants/Modded/SpecialOrderNames.cs b/StardewArchipelago/Constants/Modded/SpecialOrderNames.cs
+index b196dfb..f4d12e9 100644
+--- a/StardewArchipelago/Constants/Modded/SpecialOrderNames.cs
++++ b/StardewArchipelago/Constants/Modded/SpecialOrderNames.cs
+@@ -22,5 +22,21 @@ namespace StardewArchipelago.Constants.Modded
+             { "Lemurkat.SpecialOrders.JasperScrolls_Name", "Dwarven Scrolls" },
+             { "Lemurkat.SpecialOrders.JasperDevices_Name", "[Not Implemented Jasper Devices Special Order]" },
+         };
++
++        // Modded special orders whose Archipelago location is named differently from the order itself.
++        private static readonly Dictionary<string, string> ModdedOrderLocationNames = new()
++        {
++            { "The Railroad Boulder", "Quest: The Railroad Boulder" },
++            { "Grandpa's Shed", "Quest: Grandpa's Shed" },
++            { "Marlon's Boat", "Quest: Marlon's Boat" },
++            { "Aurora Vineyard", "Quest: Aurora Vineyard" },
++            { "Monster Crops", "Quest: Monster Crops" },
++            { "Void Soul", "Quest: Void Soul Retrieval" },
++        };
++
++        public static string GetLocationName(string englishOrderName)
++        {
++            return ModdedOrderLocationNames.TryGetValue(englishOrderName, out var locationName) ? locationName : englishOrderName;
++        }
+     }
+ }
+diff --git a/StardewArchipelago/Constants/Vanilla/NameAliases.cs b/StardewArchipelago/Constants/Vanilla/NameAliases.cs
+index f8720ed..16f8774 100644
+--- a/StardewArchipelago/Constants/Vanilla/NameAliases.cs
++++ b/StardewArchipelago/Constants/Vanilla/NameAliases.cs
+@@ -35,6 +35,7 @@ namespace StardewArchipelago.Constants.Vanilla
+             { "MarlonFay", "Marlon" },
+             { "GuntherSilvian", "Gunther" },
+             { "MorrisTod", "Morris" },
++            { "SVE_Henchman", "Henchman" },
+             { "Aimon111.WitchSwampOverhaulCP_GoblinZic", "Zic" },
+             { "ichortower.HatMouseLacey_Lacey", "Lacey" },
+             { "SPB_Alec", "Alec" },
+diff --git a/StardewArchipelago/Items/Unlocks/Modded/SVEUnlockManager.cs b/StardewArchipelago/Items/Unlocks/Modded/SVEUnlockManager.cs
+index e87fd64..5f4877e 100644
+--- a/StardewArchipelago/Items/Unlocks/Modded/SVEUnlockManager.cs
++++ b/StardewArchipelago/Items/Unlocks/Modded/SVEUnlockManager.cs
+@@ -36,8 +36,6 @@ namespace StardewArchipelago.Items.Unlocks.Modded
+         public const string LANCE_WARP_EVENT = "65360191";
+         public const string KITTYFISH_EVENT = "69069247";
+         public const string SCARLETT_EVENT = "3691371";
+-        public const string AURORA_EVENT = "658059254";
+-        public const string MORGAN_EVENT = "658078924";
+ 
+         public SVEUnlockManager()
+         {
+diff --git a/StardewArchipelago/Locations/CodeInjections/Initializers/ModCodeInjectionInitializer.cs b/StardewArchipelago/Locations/CodeInjections/Initializers/ModCodeInjectionInitializer.cs
+index ab2b58d..998a965 100644
+--- a/StardewArchipelago/Locations/CodeInjections/Initializers/ModCodeInjectionInitializer.cs
++++ b/StardewArchipelago/Locations/CodeInjections/Initializers/ModCodeInjectionInitializer.cs
+@@ -44,6 +44,7 @@ namespace StardewArchipelago.Locations.CodeInjections.Initializers
+             if (_archipelago.SlotData.Mods.HasMod(ModNames.SVE))
+             {
+                 SVECutsceneInjections.Initialize(logger, modHelper, _archipelago, locationChecker);
++                SVEEventGates.Initialize(logger);
+             }
+             if (_archipelago.SlotData.Mods.HasMod(ModNames.BOARDING_HOUSE))
+             {
+diff --git a/StardewArchipelago/Locations/CodeInjections/Modded/SVE/SVECutsceneInjections.cs b/StardewArchipelago/Locations/CodeInjections/Modded/SVE/SVECutsceneInjections.cs
+index 444c346..022b1aa 100644
+--- a/StardewArchipelago/Locations/CodeInjections/Modded/SVE/SVECutsceneInjections.cs
++++ b/StardewArchipelago/Locations/CodeInjections/Modded/SVE/SVECutsceneInjections.cs
+@@ -19,15 +19,15 @@ namespace StardewArchipelago.Locations.CodeInjections.Modded.SVE
+         private static IModHelper _modHelper;
+         private static ArchipelagoClient _archipelago;
+         private static LocationChecker _locationChecker;
+-        private const string AURORA_EVENT = "658059254";
+-        private const string MORGAN_EVENT = "658078924";
+-        private const string RAILROAD_KEY = "Clint2Again";
+         private const string RAILROAD_BOULDER_ID = "8050108";
+         private const string IRIDIUM_BOMB_ID = "8050109";
+         private const string LANCE_CHEST_LOCATION = "Quest: Monster Crops";
+         private const string MONSTER_ERADICATION_AP_PREFIX = "Monster Eradication: ";
+ 
+         private const string APPLES_NAME = "Apples";
++        private const string GRANDPAS_SHED_REPAIRED_EVENT = "2554906";
++        private const string GRANDPAS_SHED_ORDER = "Robin3";
++        private const string GRANDPAS_SHED_LOCATION = "Quest: Grandpa's Shed";
+ 
+         private static readonly List<string> voidSpirits = new()
+         {
+@@ -41,10 +41,8 @@ namespace StardewArchipelago.Locations.CodeInjections.Modded.SVE
+         private static readonly Dictionary<string, string> sveEventSpecialOrders = new()
+         {
+             { "8050108", "Clint2" },
+-            { "2551994", "Clint3" },
+-            { "8033859", "Lewis2" },
+             { "2554903", "Robin3" },
+-            { "2554928", "Robin4" },
++            { GRANDPAS_SHED_REPAIRED_EVENT, "Robin3" },
+             { "7775926", "Apples" },
+             { "65360183", "MarlonFay2" },
+             { "65360186", "Lance" },
+@@ -115,6 +113,19 @@ namespace StardewArchipelago.Locations.CodeInjections.Modded.SVE
+                 //Change the key so it doesn't get deleted
+                 var eventsKey = sveEventSpecialOrders[__instance.id];
+ 
++                // The "Grandpa's Shed" item can repair the shed before the order was ever offered. The ruins are gone by then,
++                // so the order is handed out when the repaired-shed event plays, and only if it is still outstanding.
++                if (__instance.id == GRANDPAS_SHED_REPAIRED_EVENT)
++                {
++                    var team = Game1.player.team;
++                    if (!_locationChecker.IsLocationMissing(GRANDPAS_SHED_LOCATION) ||
++                        team.SpecialOrderActive(GRANDPAS_SHED_ORDER) ||
++                        team.completedSpecialOrders.Contains(GRANDPAS_SHED_ORDER))
++                    {
++                        return MethodPrefix.RUN_ORIGINAL_METHOD;
++                    }
++                }
++
+                 var specialOrder = SpecialOrder.GetSpecialOrder(eventsKey, null);
+                 Game1.player.team.specialOrders.Add(specialOrder);
+ 
+diff --git a/StardewArchipelago/Locations/CodeInjections/Modded/SVE/SVEEventGates.cs b/StardewArchipelago/Locations/CodeInjections/Modded/SVE/SVEEventGates.cs
+new file mode 100644
+index 0000000..82248be
+--- /dev/null
++++ b/StardewArchipelago/Locations/CodeInjections/Modded/SVE/SVEEventGates.cs
+@@ -0,0 +1,208 @@
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using KaitoKid.Utilities.Interfaces;
++using StardewModdingAPI;
++using StardewModdingAPI.Events;
++using StardewValley;
++
++namespace StardewArchipelago.Locations.CodeInjections.Modded.SVE
++{
++    // Decides which Stardew Valley Expanded events may run naturally in an Archipelago game.
++    // Rules are keyed by event id, so they survive SVE changing the rest of the event key.
++    public static class SVEEventGates
++    {
++        public enum GateKind
++        {
++            // The event never runs naturally. The matching AP item marks it as seen instead.
++            Block,
++
++            // The event runs only once the AP mail flag exists. Named preconditions are ignored.
++            Gate,
++
++            // The event runs as normal, except the listed preconditions are ignored.
++            Relax,
++        }
++
++        public class EventGateRule
++        {
++            public string EventId { get; }
++            public GateKind Kind { get; }
++            public string RequiredMail { get; }
++            public HashSet<string> RelaxedNames { get; }
++            public HashSet<string> RelaxedExact { get; }
++            public string Reason { get; }
++
++            public EventGateRule(string eventId, GateKind kind, string reason, string requiredMail = null, string[] relaxedNames = null, string[] relaxedExact = null)
++            {
++                EventId = eventId;
++                Kind = kind;
++                Reason = reason;
++                RequiredMail = requiredMail;
++                RelaxedNames = new HashSet<string>(relaxedNames ?? Array.Empty<string>());
++                RelaxedExact = new HashSet<string>(relaxedExact ?? Array.Empty<string>());
++            }
++
++            public bool HasRelaxations => RelaxedNames.Any() || RelaxedExact.Any();
++
++            public bool IsRelaxed(string precondition)
++            {
++                var trimmed = precondition.Trim();
++                if (RelaxedExact.Contains(trimmed))
++                {
++                    return true;
++                }
++
++                var name = trimmed.Split(' ')[0].TrimStart('!');
++                return RelaxedNames.Contains(name);
++            }
++        }
++
++        public const string AURORA_TABLET_FLAG = "apAuroraVineyard";
++        public const string MORGAN_SCHOOLING_FLAG = "apMorganSchooling";
++
++        // The one place that lists every SVE event the integration controls.
++        public static readonly EventGateRule[] Rules =
++        {
++            // Apples' dream (start of the Aurora Vineyard chain): needs the tablet, not the Community Center or day 138.
++            new("77759254", GateKind.Gate, "Aurora Vineyard Tablet", AURORA_TABLET_FLAG, new[] { "e", "SeenEvent", "j", "DaysPlayed" }),
++
++            // Morgan's arrival: needs Morgan's Schooling, not year 3 / day of week / the Shrine of Illusions.
++            new("5978924", GateKind.Gate, "Morgan's Schooling", MORGAN_SCHOOLING_FLAG, new[] { "y", "Year", "d", "DayOfWeek", "e", "SeenEvent" }),
++
++            // Krobus ten hearts: the Dwarf sewer event is not guaranteed in AP.
++            new("1090505", GateKind.Relax, "Krobus without the Dwarf sewer event", relaxedExact: new[] { "e 691039" }),
++
++            new("3691371", GateKind.Block, "Scarlett's Job Offer"),
++            new("69069247", GateKind.Block, "Kittyfish Spell"),
++            new("65360191", GateKind.Block, "Fable Reef Portal"),
++            new("908070", GateKind.Block, "Nexus chain"),
++            new("908071", GateKind.Block, "Nexus chain"),
++            new("908072", GateKind.Block, "Nexus chain"),
++            new("908073", GateKind.Block, "Nexus chain"),
++            new("908074", GateKind.Block, "Nexus chain"),
++            new("908075", GateKind.Block, "Nexus chain"),
++            new("908076", GateKind.Block, "Nexus chain"),
++            new("908077", GateKind.Block, "Nexus chain"),
++            new("908078", GateKind.Block, "Nexus chain"),
++            new("1090501", GateKind.Block, "Rusty Key cutscene"),
++            new("1579125", GateKind.Block, "Marlon in the sewer (pre-marked at new game)"),
++        };
++
++        private static readonly Dictionary<string, EventGateRule> _rulesById = Rules.ToDictionary(x => x.EventId);
++        private static ILogger _logger;
++        private static bool _selfCheckPending;
++
++        public static void Initialize(ILogger logger)
++        {
++            _logger = logger;
++        }
++
++        public static void ScheduleStartupSelfCheck(IModHelper modHelper)
++        {
++            _selfCheckPending = true;
++            modHelper.Events.GameLoop.DayStarted += OnDayStarted_SelfCheck;
++        }
++
++        private static void OnDayStarted_SelfCheck(object sender, DayStartedEventArgs e)
++        {
++            if (!_selfCheckPending)
++            {
++                return;
++            }
++
++            _selfCheckPending = false;
++            try
++            {
++                SelfCheck();
++            }
++            catch (Exception ex)
++            {
++                _logger.LogError($"Failed in {nameof(SVEEventGates)}.{nameof(SelfCheck)}:\n{ex}");
++            }
++        }
++
++        private static void SelfCheck()
++        {
++            var foundIds = new HashSet<string>();
++            foreach (var location in Game1.locations)
++            {
++                if (!location.TryGetLocationEvents(out _, out var events) || events == null)
++                {
++                    continue;
++                }
++
++                foreach (var key in events.Keys)
++                {
++                    var id = key.Split('/')[0];
++                    if (_rulesById.ContainsKey(id))
++                    {
++                        foundIds.Add(id);
++                    }
++                }
++            }
++
++            foreach (var rule in Rules.Where(x => !foundIds.Contains(x.EventId)))
++            {
++                _logger.LogWarning($"SVE event gate for event {rule.EventId} ({rule.Reason}) matches no event in any location's Data/Events. SVE may have renumbered it.");
++            }
++
++            _logger.LogInfo($"SVE event gates: {foundIds.Count} of {Rules.Length} rules bound to a live event.");
++        }
++
++        // public virtual string checkEventPrecondition(string precondition, bool check_seen)
++        public static bool CheckEventPrecondition_GateApControlledEvents_Prefix(GameLocation __instance, string precondition, bool check_seen, ref string __result)
++        {
++            try
++            {
++                var parts = Event.SplitPreconditions(precondition);
++                if (parts == null || parts.Length == 0 || !_rulesById.TryGetValue(parts[0], out var rule))
++                {
++                    return true;
++                }
++
++                var id = parts[0];
++                if (rule.Kind == GateKind.Block ||
++                    (rule.RequiredMail != null && !Game1.player.mailReceived.Contains(rule.RequiredMail)))
++                {
++                    __result = "-1";
++                    return false;
++                }
++
++                if (!rule.HasRelaxations)
++                {
++                    return true;
++                }
++
++                if (check_seen && (Game1.player.eventsSeen.Contains(id) || Game1.eventsSeenSinceLastLocationChange.Contains(id)))
++                {
++                    __result = "-1";
++                    return false;
++                }
++
++                for (var i = 1; i < parts.Length; i++)
++                {
++                    if (string.IsNullOrEmpty(parts[i]) || rule.IsRelaxed(parts[i]))
++                    {
++                        continue;
++                    }
++
++                    // Still goes through the patched Event.CheckPrecondition, so the villager existence gate keeps working.
++                    if (!Event.CheckPrecondition(__instance, id, parts[i]))
++                    {
++                        __result = "-1";
++                        return false;
++                    }
++                }
++
++                __result = id;
++                return false;
++            }
++            catch (Exception ex)
++            {
++                _logger.LogError($"Failed in {nameof(CheckEventPrecondition_GateApControlledEvents_Prefix)}:\n{ex}");
++                return true;
++            }
++        }
++    }
++}
+diff --git a/StardewArchipelago/Locations/CodeInjections/Vanilla/SpecialOrderInjections.cs b/StardewArchipelago/Locations/CodeInjections/Vanilla/SpecialOrderInjections.cs
+index 5081f9a..24bdddb 100644
+--- a/StardewArchipelago/Locations/CodeInjections/Vanilla/SpecialOrderInjections.cs
++++ b/StardewArchipelago/Locations/CodeInjections/Vanilla/SpecialOrderInjections.cs
+@@ -103,7 +103,8 @@ namespace StardewArchipelago.Locations.CodeInjections.Vanilla
+ 
+         private static void RemoveObsoleteRewards(SpecialOrder specialOrder)
+         {
+-            var specialOrderName = GetEnglishQuestName(specialOrder.questName.Value);
++            var englishOrderName = GetEnglishQuestName(specialOrder.questName.Value);
++            var specialOrderName = SpecialOrderNames.GetLocationName(englishOrderName);
+             if (!_archipelago.LocationExists(specialOrderName))
+             {
+                 return;
+@@ -112,7 +113,7 @@ namespace StardewArchipelago.Locations.CodeInjections.Vanilla
+             // Remove vanilla rewards if the player has not received the check.
+             // We will keep vanilla rewards for repeated orders
+             var checkMissing = _locationChecker.IsLocationMissing(specialOrderName);
+-            var shouldHaveVanillaRewards = IgnoredModdedStrings.SpecialOrders.Contains(specialOrderName);
++            var shouldHaveVanillaRewards = IgnoredModdedStrings.SpecialOrders.Contains(englishOrderName);
+             if (shouldHaveVanillaRewards)
+             {
+                 return;
+@@ -199,7 +200,7 @@ namespace StardewArchipelago.Locations.CodeInjections.Vanilla
+                     return;
+                 }
+ 
+-                var specialOrderName = GetEnglishQuestName(__instance.questName.Value);
++                var specialOrderName = SpecialOrderNames.GetLocationName(GetEnglishQuestName(__instance.questName.Value));
+                 if (!_archipelago.LocationExists(specialOrderName))
+                 {
+                     return;
+@@ -497,6 +498,23 @@ namespace StardewArchipelago.Locations.CodeInjections.Vanilla
+             return false;
+         }
+ 
++        private static readonly HashSet<string> _unknownOrderNameKeys = new();
++
++        private static string GetModdedOrderName(string nameKey)
++        {
++            if (SpecialOrderNames.Mods.TryGetValue(nameKey, out var moddedName))
++            {
++                return moddedName;
++            }
++
++            if (_unknownOrderNameKeys.Add(nameKey))
++            {
++                _logger.LogWarning($"Special order name key `{nameKey}` has no entry in {nameof(SpecialOrderNames)}.{nameof(SpecialOrderNames.Mods)}; using the key itself as the name.");
++            }
++
++            return nameKey;
++        }
++
+         public static string GetEnglishQuestName(string questNameKey)
+         {
+             var specialOrderStrings = _englishContentManager.Load<Dictionary<string, string>>("Strings\\SpecialOrderStrings");
+@@ -514,7 +532,7 @@ namespace StardewArchipelago.Locations.CodeInjections.Vanilla
+                     }
+ 
+                     var str1 = questNameKey.Substring(startIndex + 1, num - startIndex - 1);
+-                    var thisString = specialOrderStrings.ContainsKey(str1) ? specialOrderStrings[str1] : SpecialOrderNames.Mods[str1];
++                    var thisString = specialOrderStrings.ContainsKey(str1) ? specialOrderStrings[str1] : GetModdedOrderName(str1);
+                     questNameKey = questNameKey.Remove(startIndex, num - startIndex + 1);
+                     questNameKey = questNameKey.Insert(startIndex, thisString);
+                 }
+diff --git a/StardewArchipelago/Locations/Patcher/ModLocationPatcher.cs b/StardewArchipelago/Locations/Patcher/ModLocationPatcher.cs
+index 802f3c5..0e5ef07 100644
+--- a/StardewArchipelago/Locations/Patcher/ModLocationPatcher.cs
++++ b/StardewArchipelago/Locations/Patcher/ModLocationPatcher.cs
+@@ -244,6 +244,12 @@ namespace StardewArchipelago.Locations.Patcher
+                 original: AccessTools.Method(typeof(Event), nameof(Event.endBehaviors), parameters: new[] { typeof(string[]), typeof(GameLocation) }),
+                 prefix: new HarmonyMethod(typeof(SVECutsceneInjections), nameof(SVECutsceneInjections.EndBehaviors_AddSpecialOrderAfterEvent_Prefix))
+             );
++
++            _harmony.Patch(
++                original: AccessTools.Method(typeof(GameLocation), nameof(GameLocation.checkEventPrecondition), new[] { typeof(string), typeof(bool) }),
++                prefix: new HarmonyMethod(typeof(SVEEventGates), nameof(SVEEventGates.CheckEventPrecondition_GateApControlledEvents_Prefix))
++            );
++            SVEEventGates.ScheduleStartupSelfCheck(_modHelper);
+             var specialOrderAfterEventsType = AccessTools.TypeByName("AddSpecialOrdersAfterEvents");
+ 
+             _harmony.Patch(

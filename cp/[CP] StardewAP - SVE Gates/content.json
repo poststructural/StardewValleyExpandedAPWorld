@@ -1,0 +1,101 @@
+{
+  "Format": "2.9.0",
+  "Changes": [
+    {
+      "LogName": "Grandpa's Shed drop box, objective 0",
+      "Action": "EditData",
+      "Target": "Data/SpecialOrders",
+      "Priority": "Late",
+      "TargetField": [
+        "Robin3",
+        "Objectives",
+        "0",
+        "Data"
+      ],
+      "Entries": {
+        "DropBox": "apGSDrop",
+        "DropBoxGameLocation": "Custom_GrandpasShedOutside",
+        "DropBoxIndicatorLocation": "21 15"
+      }
+    },
+    {
+      "LogName": "Grandpa's Shed drop box, objective 1",
+      "Action": "EditData",
+      "Target": "Data/SpecialOrders",
+      "Priority": "Late",
+      "TargetField": [
+        "Robin3",
+        "Objectives",
+        "1",
+        "Data"
+      ],
+      "Entries": {
+        "DropBox": "apGSDrop",
+        "DropBoxGameLocation": "Custom_GrandpasShedOutside",
+        "DropBoxIndicatorLocation": "21 15"
+      }
+    },
+    {
+      "LogName": "Grandpa's Shed drop box, objective 2",
+      "Action": "EditData",
+      "Target": "Data/SpecialOrders",
+      "Priority": "Late",
+      "TargetField": [
+        "Robin3",
+        "Objectives",
+        "2",
+        "Data"
+      ],
+      "Entries": {
+        "DropBox": "apGSDrop",
+        "DropBoxGameLocation": "Custom_GrandpasShedOutside",
+        "DropBoxIndicatorLocation": "21 15"
+      }
+    },
+    {
+      "LogName": "Grandpa's Shed drop box, objective 3",
+      "Action": "EditData",
+      "Target": "Data/SpecialOrders",
+      "Priority": "Late",
+      "TargetField": [
+        "Robin3",
+        "Objectives",
+        "3",
+        "Data"
+      ],
+      "Entries": {
+        "DropBox": "apGSDrop",
+        "DropBoxGameLocation": "Custom_GrandpasShedOutside",
+        "DropBoxIndicatorLocation": "21 15"
+      }
+    },
+    {
+      "LogName": "Grandpa's Shed exterior drop box",
+      "Action": "EditMap",
+      "Target": "Maps/Custom_GrandpasShedOutside",
+      "Priority": "Late",
+      "MapTiles": [
+        {
+          "Position": {
+            "X": 20,
+            "Y": 16
+          },
+          "Layer": "Buildings",
+          "SetProperties": {
+            "Action": "DropBox apGSDrop"
+          }
+        },
+        {
+          "Position": {
+            "X": 21,
+            "Y": 16
+          },
+          "Layer": "Buildings",
+          "SetProperties": {
+            "Action": "DropBox apGSDrop"
+          }
+        }
+      ]
+    }
+  ]
+}
