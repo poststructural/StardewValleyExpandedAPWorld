@@ -12,3 +12,5 @@ TestResults/
 
 # decompiled third-party code: analysis only, never redistributed
 _analysis/
+tools/sve-smoketest/mod/bin/
+tools/sve-smoketest/mod/obj/

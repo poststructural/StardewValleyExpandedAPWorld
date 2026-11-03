@@ -1,0 +1,9 @@
+{
+  "Name": "APSmokeTest",
+  "Author": "ste-apworld",
+  "Version": "0.1.0",
+  "Description": "Test tool: drives a new Archipelago save and fires one check per path. Never ship.",
+  "UniqueID": "ste.APSmokeTest",
+  "EntryDll": "APSmokeTest.dll",
+  "MinimumApiVersion": "4.0.0"
+}

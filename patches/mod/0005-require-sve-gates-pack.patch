@@ -1,0 +1,37 @@
+diff --git a/StardewArchipelago/Constants/Modded/ModVersions.cs b/StardewArchipelago/Constants/Modded/ModVersions.cs
+index bfa1eaa..4037b91 100644
+--- a/StardewArchipelago/Constants/Modded/ModVersions.cs
++++ b/StardewArchipelago/Constants/Modded/ModVersions.cs
+@@ -52,13 +52,13 @@ namespace StardewArchipelago.Constants.Modded
+ 
+         // SVE 1.15.x runs natively on SDV 1.6.15, so the rebuilt "StardewValleyExpanded 1.14.x-archipelago" code DLL
+         // and Witchybun's "[CP] StardewAP - SVE Patch" are no longer used. Our own small pack (cp/ in the repo) adds the
+-        // Grandpa's Shed drop box. A missing pack only logs a warning; Grandpa's Shed still works through the ruins.
++        // Grandpa's Shed drop box. The pack is required: without it the shed order is unfinishable.
+         public static readonly Dictionary<string, List<ContentPatcherRequirement>> ExtraRequirementsVersions = new()
+         {
+             {
+                 ModNames.SVE, new List<ContentPatcherRequirement>()
+                 {
+-                    new(ModNames.AP_CP_SVE_GATES, $"0.1.{WILDCARD}", warnOnly: true),
++                    new(ModNames.AP_CP_SVE_GATES, $"0.1.{WILDCARD}"),
+                 }
+             },
+         };
+diff --git a/StardewArchipelago/Locations/CodeInjections/Modded/SVE/SVEEventGates.cs b/StardewArchipelago/Locations/CodeInjections/Modded/SVE/SVEEventGates.cs
+index 82248be..e5c1560 100644
+--- a/StardewArchipelago/Locations/CodeInjections/Modded/SVE/SVEEventGates.cs
++++ b/StardewArchipelago/Locations/CodeInjections/Modded/SVE/SVEEventGates.cs
+@@ -144,10 +144,10 @@ namespace StardewArchipelago.Locations.CodeInjections.Modded.SVE
+ 
+             foreach (var rule in Rules.Where(x => !foundIds.Contains(x.EventId)))
+             {
+-                _logger.LogWarning($"SVE event gate for event {rule.EventId} ({rule.Reason}) matches no event in any location's Data/Events. SVE may have renumbered it.");
++                _logger.LogDebug($"SVE event gate for event {rule.EventId} ({rule.Reason}) has no live event yet. SVE adds some events only once their story conditions are met, so this is expected early on; if it stays unbound late in a save, SVE may have renumbered it.");
+             }
+ 
+-            _logger.LogInfo($"SVE event gates: {foundIds.Count} of {Rules.Length} rules bound to a live event.");
++            _logger.LogInfo($"SVE event gates: {foundIds.Count} of {Rules.Length} rules bound to a live event (the rest load later in the story).");
+         }
+ 
+         // public virtual string checkEventPrecondition(string precondition, bool check_seen)
