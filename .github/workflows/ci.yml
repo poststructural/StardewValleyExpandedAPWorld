@@ -49,11 +49,12 @@ jobs:
         working-directory: .cache/archipelago
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt -r ci-requirements.txt
+          python -m pip install -r ci-requirements.txt
+          python ModuleUpdate.py --yes --force
 
       - name: Archipelago settings
         working-directory: .cache/archipelago
-        run: python Launcher.py --update_settings
+        run: python Launcher.py --update_settings  # creates host.yaml, as upstream CI does
 
       - name: Stardew Valley world tests
         working-directory: .cache/archipelago
