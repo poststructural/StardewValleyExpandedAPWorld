@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import sync_id_tables
 from common import DEFAULT_CACHE, ROOT, die, get_ci, load_lock, read_json_lenient
 
 GAME_DLL = "Stardew Valley.dll"
@@ -97,6 +98,10 @@ def main() -> None:
         die("dotnet SDK not found on PATH")
     game = find_game(args.game_path)
     check_game_version(game, lock["game"]["version"])
+
+    # Make the client know the ids of the locations/items this project adds to the world, before it is compiled.
+    if sync_id_tables.main(["--cache-root", str(args.cache_root)]) != 0:
+        die("sync_id_tables failed")
 
     print(f"building {args.configuration} against {game}")
     # EnableModDeploy/EnableModZip are Pathoschild.Stardew.ModBuildConfig properties; turn them off so the build

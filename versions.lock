@@ -35,6 +35,11 @@
   "release": {
     "version": "0.1.0"
   },
+  "id_blocks": {
+    "$comment": "Ids (csv 'id' column; code = 717000 + id) owned by this project in the world's data/locations.csv and data/items.csv. scripts/sync_id_tables.py copies exactly these into the client IdTables.",
+    "locations": [90001, 90226],
+    "items": [90001, 90020]
+  },
   "artifacts": {
     "apworld": "stardew_valley.apworld",
     "mod_dir": "StardewArchipelago"

@@ -1,0 +1,987 @@
+diff --git a/worlds/stardew_valley/content/mods/sve.py b/worlds/stardew_valley/content/mods/sve.py
+index dbbd9dc..cfaa925 100644
+--- a/worlds/stardew_valley/content/mods/sve.py
++++ b/worlds/stardew_valley/content/mods/sve.py
+@@ -3,18 +3,24 @@ from ..mod_registry import register_mod_content_pack
+ from ..override import override
+ from ..vanilla.ginger_island import ginger_island_content_pack as ginger_island_content_pack
+ from ...data import villagers_data, fish_data
++from ...data.artisan import MachineSource
+ from ...data.game_item import ItemTag, Tag
+-from ...data.harvest import ForagingSource, HarvestCropSource
++from ...data.harvest import ForagingSource, HarvestCropSource, HarvestFruitTreeSource
+ from ...data.requirement import YearRequirement, CombatRequirement, SpecificFriendRequirement, ToolRequirement, SkillRequirement, FishingRequirement
+ from ...data.shop import ShopSource
+ from ...mods.mod_data import ModNames
+-from ...strings.craftable_names import ModEdible
++from ...strings.animal_product_names import AnimalProduct
++from ...strings.artisan_good_names import SVEArtisanGood
++from ...strings.craftable_names import ModEdible, SVEMachine
+ from ...strings.crop_names import Fruit, SVEVegetable, SVEFruit
+ from ...strings.fish_names import WaterItem, SVEWaterItem
+ from ...strings.flower_names import Flower
+ from ...strings.food_names import SVEMeal, SVEBeverage
++from ...strings.fruit_tree_names import SVESapling
+ from ...strings.forageable_names import Mushroom, Forageable, SVEForage
+ from ...strings.gift_names import SVEGift
++from ...strings.material_names import SVEMaterial
++from ...strings.metal_names import MetalBar, SVEArtifact
+ from ...strings.monster_drop_names import ModLoot
+ from ...strings.performance_names import Performance
+ from ...strings.region_names import Region, SVERegion
+@@ -43,11 +49,24 @@ class SVEContentPack(ContentPack):
+             # Remove Highlands fishes at it requires 2 Lance hearts for the quest to access it
+             content.fishes.pop(fish_data.daggerfish.name)
+             content.fishes.pop(fish_data.gemfish.name)
++            content.fishes.pop(fish_data.fiber_goby.name)
++            content.fishes.pop(fish_data.highlands_bass.name)
+ 
+             # Remove Fable Reef fishes at it requires 8 Lance hearts for the event to access it
+             content.fishes.pop(fish_data.torpedo_trout.name)
++            content.fishes.pop(fish_data.arrowhead_shark.name)
++            content.fishes.pop(fish_data.barred_knifejaw.name)
++            content.fishes.pop(fish_data.blue_tang.name)
++            content.fishes.pop(fish_data.ocean_sunfish.name)
++            content.fishes.pop(fish_data.shark.name)
++            content.fishes.pop(fish_data.turretfish.name)
++            content.fishes.pop(fish_data.viper_eel.name)
+ 
+     def villager_hook(self, content: StardewContent):
++        if ModNames.distant_lands in content.registered_packs:
++            # SVE does not add Henchman when the Witch Swamp Overhaul is installed
++            content.villagers.pop(villagers_data.henchman.name)
++
+         if ginger_island_content_pack.name not in content.registered_packs:
+             # Remove Lance if Ginger Island is not in content since he is first encountered in Volcano Forge
+             content.villagers.pop(villagers_data.lance.name)
+@@ -80,6 +99,7 @@ register_mod_content_pack(SVEContentPack(
+     weak_dependencies=(
+         ginger_island_content_pack.name,
+         ModNames.jasper,  # To override Marlon and Gunther
++        ModNames.distant_lands,  # To remove Henchman
+     ),
+     shop_sources={
+         SVEGift.aged_blue_moon_wine: (ShopSource(price=28000, shop_region=SVERegion.blue_moon_vineyard),),
+@@ -91,6 +111,25 @@ register_mod_content_pack(SVEContentPack(
+                                                        shop_region=Region.saloon,
+                                                        other_requirements=(SpecificFriendRequirement(ModNPC.sophia, 6),)),),
+         ModEdible.hero_elixir: (ShopSource(price=8000, shop_region=SVERegion.isaac_shop),),
++        SVESeed.cucumber: (ShopSource(price=75, shop_region=Region.pierre_store, seasons=(Season.spring,)),),
++        SVESeed.butternut_squash: (ShopSource(price=30, shop_region=Region.pierre_store, seasons=(Season.summer,)),),
++        SVESeed.sweet_potato: (ShopSource(price=45, shop_region=Region.pierre_store, seasons=(Season.fall,)),),
++        SVESeed.gold_carrot: (ShopSource(items_price=((3, MetalBar.gold),), shop_region=Region.desert, seasons=Season.not_winter),),
++        SVESapling.pear: (ShopSource(price=1600, shop_region=Region.pierre_store),),
++        SVESapling.nectarine: (ShopSource(price=3000, shop_region=Region.pierre_store),),
++        SVESapling.persimmon: (ShopSource(price=4000, shop_region=Region.pierre_store),),
++        SVEMaterial.birch_water: (ShopSource(price=1000, shop_region=SVERegion.bear_shop),),
++        SVEMaterial.fir_wax: (ShopSource(price=2000, shop_region=SVERegion.bear_shop),),
++        SVEMeal.ice_cream_sundae: (ShopSource(price=500, shop_region=Region.town, seasons=(Season.summer,)),),
++        SVEMeal.vegan_cone: (ShopSource(price=750, shop_region=Region.town, seasons=(Season.summer,)),),
++        # The museum artifacts are sold by the Red Junimo vendor
++        SVEArtifact.amber: (ShopSource(price=10000, shop_region=SVERegion.junimo_woods),),
++        SVEArtifact.boomerang: (ShopSource(price=5000, shop_region=SVERegion.junimo_woods),),
++        SVEArtifact.faded_button: (ShopSource(price=3000, shop_region=SVERegion.junimo_woods),),
++        SVEArtifact.fossilized_apple: (ShopSource(price=4000, shop_region=SVERegion.junimo_woods),),
++        SVEArtifact.old_coin: (ShopSource(price=2500, shop_region=SVERegion.junimo_woods),),
++        SVEArtifact.rusty_shield: (ShopSource(price=6000, shop_region=SVERegion.junimo_woods),),
++        SVEArtifact.stone_of_yoba: (ShopSource(price=60000, shop_region=SVERegion.junimo_woods),),
+         ModEdible.aegis_elixir: (ShopSource(price=28000, shop_region=SVERegion.galmoran_outpost),),
+         SVEBeverage.sports_drink: (ShopSource(price=750, shop_region=Region.hospital),),
+         SVEMeal.stamina_capsule: (ShopSource(price=4000, shop_region=Region.hospital),),
+@@ -171,6 +210,17 @@ register_mod_content_pack(SVEContentPack(
+         SVESeed.void: (ForagingSource(regions=(SVERegion.highlands_cavern,), other_requirements=(CombatRequirement(Performance.good),)),),
+         SVEVegetable.void_root: (Tag(ItemTag.VEGETABLE), HarvestCropSource(seed=SVESeed.void, seasons=(Season.winter,)),),
+ 
++        # SVE 1.15 crops sold at Pierre's and in the desert
++        SVEVegetable.cucumber: (Tag(ItemTag.VEGETABLE), HarvestCropSource(seed=SVESeed.cucumber, seasons=(Season.spring,)),),
++        SVEVegetable.butternut_squash: (Tag(ItemTag.VEGETABLE), HarvestCropSource(seed=SVESeed.butternut_squash, seasons=(Season.summer,)),),
++        SVEVegetable.sweet_potato: (Tag(ItemTag.VEGETABLE), HarvestCropSource(seed=SVESeed.sweet_potato, seasons=(Season.fall,)),),
++        SVEVegetable.gold_carrot: (Tag(ItemTag.VEGETABLE), HarvestCropSource(seed=SVESeed.gold_carrot, seasons=Season.not_winter),),
++        SVEFruit.pear: (Tag(ItemTag.FRUIT), HarvestFruitTreeSource(sapling=SVESapling.pear, seasons=(Season.spring,)),),
++        SVEFruit.nectarine: (Tag(ItemTag.FRUIT), HarvestFruitTreeSource(sapling=SVESapling.nectarine, seasons=(Season.summer,)),),
++        SVEFruit.persimmon: (Tag(ItemTag.FRUIT), HarvestFruitTreeSource(sapling=SVESapling.persimmon, seasons=(Season.fall,)),),
++    },
++    artisan_good_sources={
++        SVEArtisanGood.butter: (MachineSource(item=AnimalProduct.any_milk, machine=SVEMachine.butter_churner),),
+     },
+     fishes=(
+         fish_data.baby_lunaloo,  # Removed when no ginger island
+@@ -199,7 +249,19 @@ register_mod_content_pack(SVEContentPack(
+         fish_data.void_eel,
+         fish_data.water_grub,
+         fish_data.sea_sponge,  # Removed when no ginger island
+-
++        fish_data.arrowhead_shark,  # Removed when no ginger island (Fable Reef)
++        fish_data.barred_knifejaw,  # Removed when no ginger island
++        fish_data.blue_tang,  # Removed when no ginger island
++        fish_data.fiber_goby,  # Removed when no ginger island (Highlands)
++        fish_data.gar,
++        fish_data.goldfish,
++        fish_data.highlands_bass,  # Removed when no ginger island (Highlands)
++        fish_data.ocean_sunfish,  # Removed when no ginger island
++        fish_data.shark,  # Removed when no ginger island
++        fish_data.tadpole,
++        fish_data.turretfish,  # Removed when no ginger island (Fable Reef)
++        fish_data.viper_eel,  # Removed when no ginger island (Fable Reef)
++        fish_data.wolf_snapper,
+     ),
+     villagers=(
+         villagers_data.claire,
+@@ -216,6 +278,7 @@ register_mod_content_pack(SVEContentPack(
+         villagers_data.scarlett,
+         villagers_data.susan,
+         villagers_data.morris,
++        villagers_data.henchman,  # Removed with Witch Swamp Overhaul, which replaces him
+         override(villagers_data.wizard, bachelor=True, mod_name=ModNames.sve),
+     )
+ ))
+diff --git a/worlds/stardew_valley/data/craftable_data.py b/worlds/stardew_valley/data/craftable_data.py
+index ce883be..7374926 100644
+--- a/worlds/stardew_valley/data/craftable_data.py
++++ b/worlds/stardew_valley/data/craftable_data.py
+@@ -8,7 +8,7 @@ from ..strings.animal_product_names import AnimalProduct
+ from ..strings.artisan_good_names import ArtisanGood
+ from ..strings.craftable_names import Bomb, Fence, Sprinkler, WildSeeds, Floor, Fishing, Ring, Consumable, Edible, Lighting, Storage, Furniture, Sign, \
+     Craftable, \
+-    ModEdible, ModCraftable, ModMachine, ModFloor, ModConsumable, Statue
++    ModEdible, ModCraftable, ModMachine, ModFloor, ModConsumable, Statue, SVECraftable, SVEMachine
+ from ..strings.crop_names import Fruit, Vegetable
+ from ..strings.currency_names import Currency
+ from ..strings.fertilizer_names import Fertilizer, RetainingSoil, SpeedGro
+@@ -19,7 +19,7 @@ from ..strings.forageable_names import Forageable, DistantLandsForageable, Mushr
+ from ..strings.gift_names import Gift
+ from ..strings.ingredient_names import Ingredient
+ from ..strings.machine_names import Machine
+-from ..strings.material_names import Material
++from ..strings.material_names import Material, SVEMaterial
+ from ..strings.metal_names import Ore, MetalBar, Fossil, Artifact, Mineral, ModFossil
+ from ..strings.monster_drop_names import Loot, ModLoot
+ from ..strings.quest_names import Quest
+@@ -357,6 +357,19 @@ hero_elixir = shop_recipe(ModEdible.hero_elixir, SVERegion.isaac_shop, 65000, {M
+                                                                                Loot.slime: 10}, content_pack=ModNames.sve)
+ armor_elixir = shop_recipe(ModEdible.armor_elixir, SVERegion.alesia_shop, 50000, {Loot.solar_essence: 30, ModLoot.void_soul: 5, Ingredient.vinegar: 5,
+                                                                                   Fossil.bone_fragment: 5}, content_pack=ModNames.sve)
++# Added for SVE 1.15
++small_hardwood_fence = shop_recipe(SVECraftable.small_hardwood_fence, Region.carpenter, 7000, {Material.hardwood: 1}, content_pack=ModNames.sve)
++hedge_fence = skill_recipe(SVECraftable.hedge_fence, Skill.farming, 6, {Material.fiber: 3, Material.wood: 1}, content_pack=ModNames.sve)
++butter_churner = skill_recipe(SVEMachine.butter_churner, Skill.farming, 3, {Material.wood: 25, Material.stone: 25, Mineral.frozen_tear: 1, MetalBar.iron: 1},
++                              content_pack=ModNames.sve)
++yarn_spooler = skill_recipe(SVEMachine.yarn_spooler, Skill.farming, 9, {Material.hardwood: 25, ArtisanGood.battery_pack: 1, SVEMaterial.fir_wax: 1,
++                                                                       ArtisanGood.pine_tar: 1}, content_pack=ModNames.sve)
++bombardier_elixir = skill_recipe(SVECraftable.bombardier_elixir, Skill.combat, 9, {Loot.solar_essence: 30, Loot.void_essence: 30, ModLoot.void_soul: 10,
++                                                                                   ModLoot.void_pebble: 20, Bomb.bomb: 5}, content_pack=ModNames.sve)
++sun_totem = skill_recipe(SVECraftable.sun_totem, Skill.foraging, 9, {Material.hardwood: 1, Loot.solar_essence: 10, SVEMaterial.birch_water: 1},
++                         content_pack=ModNames.sve)
++wind_totem = skill_recipe(SVECraftable.wind_totem, Skill.foraging, 9, {Material.hardwood: 1, Loot.bat_wing: 10, SVEMaterial.fir_wax: 1},
++                          content_pack=ModNames.sve)
+ ginger_tincture = friendship_recipe(ModConsumable.ginger_tincture, ModNPC.goblin, 4, {DistantLandsForageable.brown_amanita: 1, Forageable.ginger: 5,
+                                                                                       Material.cinder_shard: 1, DistantLandsForageable.swamp_herb: 1},
+                                     content_pack=[ModNames.distant_lands, ginger_island_content_pack.name])
+diff --git a/worlds/stardew_valley/data/fish_data.py b/worlds/stardew_valley/data/fish_data.py
+index d263837..de2e85c 100644
+--- a/worlds/stardew_valley/data/fish_data.py
++++ b/worlds/stardew_valley/data/fish_data.py
+@@ -166,6 +166,20 @@ undeadfish = create_fish(SVEFish.undeadfish, crimson_badlands, season.all_season
+ void_eel = create_fish(SVEFish.void_eel, witch_swamp, season.all_seasons, 100, mod_name=ModNames.sve)
+ water_grub = create_fish(SVEFish.water_grub, mutant_bug_lair, season.all_seasons, 60, mod_name=ModNames.sve)
+ sea_sponge = create_fish(SVEFish.sea_sponge, ginger_island_ocean, season.all_seasons, 40, mod_name=ModNames.sve)
++# Added for SVE 1.15. Fish that spawn on the Ginger Island shores are also available on Fable Reef; the others are only at Fable Reef.
++arrowhead_shark = create_fish(SVEFish.arrowhead_shark, fable_reef, season.all_seasons, 95, mod_name=ModNames.sve)
++barred_knifejaw = create_fish(SVEFish.barred_knifejaw, fable_reef + ginger_island_ocean, season.all_seasons, 65, mod_name=ModNames.sve)
++blue_tang = create_fish(SVEFish.blue_tang, fable_reef + ginger_island_ocean, season.all_seasons, 30, mod_name=ModNames.sve)
++fiber_goby = create_fish(SVEFish.fiber_goby, highlands_pond, season.all_seasons, 60, mod_name=ModNames.sve)
++gar = create_fish(SVEFish.gar, forest_river, (season.summer, season.fall), 85, mod_name=ModNames.sve)
++goldfish = create_fish(SVEFish.goldfish, town_river, season.spring, 25, mod_name=ModNames.sve)
++highlands_bass = create_fish(SVEFish.highlands_bass, highlands_pond, season.all_seasons, 45, mod_name=ModNames.sve)
++ocean_sunfish = create_fish(SVEFish.ocean_sunfish, fable_reef + ginger_island_ocean, season.all_seasons, 90, mod_name=ModNames.sve)
++shark = create_fish(SVEFish.shark, fable_reef + ginger_island_ocean, season.all_seasons, 110, mod_name=ModNames.sve)
++tadpole = create_fish(SVEFish.tadpole, mountain_lake, (season.spring, season.summer), 3, mod_name=ModNames.sve)
++turretfish = create_fish(SVEFish.turretfish, fable_reef, season.all_seasons, 150, mod_name=ModNames.sve)
++viper_eel = create_fish(SVEFish.viper_eel, fable_reef, season.all_seasons, 80, mod_name=ModNames.sve)
++wolf_snapper = create_fish(SVEFish.wolf_snapper, shearwater, season.not_winter, 110, mod_name=ModNames.sve)
+ 
+ void_minnow = create_fish(DistantLandsFish.void_minnow, witch_swamp, season.all_seasons, 15, mod_name=ModNames.distant_lands)
+ purple_algae = create_fish(DistantLandsFish.purple_algae, witch_swamp, season.all_seasons, 15, mod_name=ModNames.distant_lands)
+diff --git a/worlds/stardew_valley/data/items.csv b/worlds/stardew_valley/data/items.csv
+index ad34dad..0f7d8b7 100644
+--- a/worlds/stardew_valley/data/items.csv
++++ b/worlds/stardew_valley/data/items.csv
+@@ -1059,3 +1059,23 @@ id,name,classification,groups,content_packs
+ 10720,Recycling Bin,filler,"FILLER_MACHINE",Binning Skill
+ 10721,Advanced Recycling Machine,filler,"FILLER_MACHINE",Binning Skill
+ 10722,Digging Like Worms,filler,"FILLER_CONSUMABLE",Archaeology
++90001,Cucumber Seed,progression,CROPSANITY,Stardew Valley Expanded
++90002,Butternut Squash Seed,progression,CROPSANITY,Stardew Valley Expanded
++90003,Sweet Potato Seed,progression,CROPSANITY,Stardew Valley Expanded
++90004,Gold Carrot Seed,progression,CROPSANITY,Stardew Valley Expanded
++90005,Pear Sapling,progression,"CROPSANITY,FILLER_FRUIT_TREES",Stardew Valley Expanded
++90006,Nectarine Sapling,progression,"CROPSANITY,FILLER_FRUIT_TREES",Stardew Valley Expanded
++90007,Persimmon Sapling,progression,"CROPSANITY,FILLER_FRUIT_TREES",Stardew Valley Expanded
++90008,Fish Dumpling Recipe,progression,"CHEFSANITY,CHEFSANITY_FRIENDSHIP",Stardew Valley Expanded
++90009,Ramen Recipe,progression,"CHEFSANITY,CHEFSANITY_FRIENDSHIP",Stardew Valley Expanded
++90010,Baked Potato Recipe,progression,"CHEFSANITY,CHEFSANITY_FRIENDSHIP",Stardew Valley Expanded
++90011,Grilled Cheese Sandwich Recipe,progression,"CHEFSANITY,CHEFSANITY_FRIENDSHIP",Stardew Valley Expanded
++90012,Nectarine Fruit Bread Recipe,progression,"CHEFSANITY,CHEFSANITY_FRIENDSHIP",Stardew Valley Expanded
++90013,Glazed Pear Recipe,progression,"CHEFSANITY,CHEFSANITY_FRIENDSHIP",Stardew Valley Expanded
++90014,Stuffed Persimmon Recipe,progression,"CHEFSANITY,CHEFSANITY_FRIENDSHIP",Stardew Valley Expanded
++90015,Cheese Charcuterie Recipe,progression,"CHEFSANITY,CHEFSANITY_FRIENDSHIP",Stardew Valley Expanded
++90016,Candy Recipe,progression,"CHEFSANITY,CHEFSANITY_PURCHASE",Stardew Valley Expanded
++90017,Birch Syrup Recipe,progression,"CHEFSANITY,CHEFSANITY_PURCHASE",Stardew Valley Expanded
++90018,Vegan Cone Recipe,progression,"CHEFSANITY,CHEFSANITY_PURCHASE",Stardew Valley Expanded
++90019,Small Hardwood Fence Recipe,progression,CRAFTSANITY,Stardew Valley Expanded
++90020,Henchman <3,progression,FRIENDSANITY,Stardew Valley Expanded
+diff --git a/worlds/stardew_valley/data/locations.csv b/worlds/stardew_valley/data/locations.csv
+index 8c4a521..a969fcd 100644
+--- a/worlds/stardew_valley/data/locations.csv
++++ b/worlds/stardew_valley/data/locations.csv
+@@ -4050,3 +4050,229 @@ id,region,name,tags,content_packs
+ 58247,Shipping,Shipsanity: Snatcher Worm,SHIPSANITY,Stardew Valley Expanded
+ 58248,Shipping,Shipsanity: Digging Like Worms,SHIPSANITY,Archaeology
+ 59000,Farm,Read Digging Like Worms,"BOOKSANITY,BOOKSANITY_SKILL",Archaeology
++90001,Fable Reef,Fishsanity: Arrowhead Shark,"FISHSANITY,GINGER_ISLAND",Stardew Valley Expanded
++90002,Fable Reef,Fishsanity: Barred Knifejaw,"FISHSANITY,GINGER_ISLAND",Stardew Valley Expanded
++90003,Fable Reef,Fishsanity: Blue Tang,"FISHSANITY,GINGER_ISLAND",Stardew Valley Expanded
++90004,Highlands Outside,Fishsanity: Fiber Goby,"FISHSANITY,GINGER_ISLAND",Stardew Valley Expanded
++90005,Forest,Fishsanity: Gar,FISHSANITY,Stardew Valley Expanded
++90006,Town,Fishsanity: Goldfish,FISHSANITY,Stardew Valley Expanded
++90007,Highlands Outside,Fishsanity: Highlands Bass,"FISHSANITY,GINGER_ISLAND",Stardew Valley Expanded
++90008,Fable Reef,Fishsanity: Ocean Sunfish,"FISHSANITY,GINGER_ISLAND",Stardew Valley Expanded
++90009,Fable Reef,Fishsanity: Shark,"FISHSANITY,GINGER_ISLAND",Stardew Valley Expanded
++90010,Mountain,Fishsanity: Tadpole,FISHSANITY,Stardew Valley Expanded
++90011,Fable Reef,Fishsanity: Turretfish,"FISHSANITY,GINGER_ISLAND",Stardew Valley Expanded
++90012,Fable Reef,Fishsanity: Viper Eel,"FISHSANITY,GINGER_ISLAND",Stardew Valley Expanded
++90013,Shearwater Bridge,Fishsanity: Wolf Snapper,FISHSANITY,Stardew Valley Expanded
++90014,Spring Farming,Harvest Cucumber,CROPSANITY,Stardew Valley Expanded
++90015,Summer Farming,Harvest Butternut Squash,CROPSANITY,Stardew Valley Expanded
++90016,Fall Farming,Harvest Sweet Potato,CROPSANITY,Stardew Valley Expanded
++90017,Farm,Harvest Gold Carrot,CROPSANITY,Stardew Valley Expanded
++90018,Spring Farming,Harvest Pear,CROPSANITY,Stardew Valley Expanded
++90019,Summer Farming,Harvest Nectarine,CROPSANITY,Stardew Valley Expanded
++90020,Fall Farming,Harvest Persimmon,CROPSANITY,Stardew Valley Expanded
++90021,Kitchen,Cook Fish Dumpling,COOKSANITY,Stardew Valley Expanded
++90022,Kitchen,Cook Ramen,COOKSANITY,Stardew Valley Expanded
++90023,Kitchen,Cook Baked Potato,COOKSANITY,Stardew Valley Expanded
++90024,Kitchen,Cook Grilled Cheese Sandwich,COOKSANITY,Stardew Valley Expanded
++90025,Kitchen,Cook Nectarine Fruit Bread,COOKSANITY,Stardew Valley Expanded
++90026,Kitchen,Cook Glazed Pear,COOKSANITY,Stardew Valley Expanded
++90027,Kitchen,Cook Stuffed Persimmon,COOKSANITY,Stardew Valley Expanded
++90028,Kitchen,Cook Cheese Charcuterie,COOKSANITY,Stardew Valley Expanded
++90029,Kitchen,Cook Candy,COOKSANITY,Stardew Valley Expanded
++90030,Kitchen,Cook Birch Syrup,COOKSANITY,Stardew Valley Expanded
++90031,Kitchen,Cook Vegan Cone,COOKSANITY,Stardew Valley Expanded
++90032,Farm,Fish Dumpling Recipe,"CHEFSANITY,CHEFSANITY_FRIENDSHIP",Stardew Valley Expanded
++90033,Farm,Ramen Recipe,"CHEFSANITY,CHEFSANITY_FRIENDSHIP",Stardew Valley Expanded
++90034,Farm,Baked Potato Recipe,"CHEFSANITY,CHEFSANITY_FRIENDSHIP",Stardew Valley Expanded
++90035,Farm,Grilled Cheese Sandwich Recipe,"CHEFSANITY,CHEFSANITY_FRIENDSHIP",Stardew Valley Expanded
++90036,Farm,Nectarine Fruit Bread Recipe,"CHEFSANITY,CHEFSANITY_FRIENDSHIP",Stardew Valley Expanded
++90037,Farm,Glazed Pear Recipe,"CHEFSANITY,CHEFSANITY_FRIENDSHIP",Stardew Valley Expanded
++90038,Farm,Stuffed Persimmon Recipe,"CHEFSANITY,CHEFSANITY_FRIENDSHIP",Stardew Valley Expanded
++90039,Farm,Cheese Charcuterie Recipe,"CHEFSANITY,CHEFSANITY_FRIENDSHIP",Stardew Valley Expanded
++90040,Saloon,Candy Recipe,"CHEFSANITY,CHEFSANITY_PURCHASE",Stardew Valley Expanded
++90041,Pierre's General Store,Birch Syrup Recipe,"CHEFSANITY,CHEFSANITY_PURCHASE",Stardew Valley Expanded
++90042,Oasis,Vegan Cone Recipe,"CHEFSANITY,CHEFSANITY_PURCHASE",Stardew Valley Expanded
++90043,Farm,Craft Small Hardwood Fence,"CRAFTSANITY,CRAFTSANITY_CRAFT",Stardew Valley Expanded
++90044,Farm,Craft Hedge Fence,"CRAFTSANITY,CRAFTSANITY_CRAFT",Stardew Valley Expanded
++90045,Farm,Craft Butter Churner,"CRAFTSANITY,CRAFTSANITY_CRAFT",Stardew Valley Expanded
++90046,Farm,Craft Yarn Spooler,"CRAFTSANITY,CRAFTSANITY_CRAFT",Stardew Valley Expanded
++90047,Farm,Craft Bombardier Elixir,"CRAFTSANITY,CRAFTSANITY_CRAFT",Stardew Valley Expanded
++90048,Farm,Craft Sun Totem,"CRAFTSANITY,CRAFTSANITY_CRAFT",Stardew Valley Expanded
++90049,Farm,Craft Wind Totem,"CRAFTSANITY,CRAFTSANITY_CRAFT",Stardew Valley Expanded
++90050,Carpenter Shop,Small Hardwood Fence Recipe,"CRAFTSANITY,CRAFTSANITY_RECIPE",Stardew Valley Expanded
++90051,Witch's Swamp,Friendsanity: Henchman 1 <3,FRIENDSANITY,Stardew Valley Expanded
++90052,Witch's Swamp,Friendsanity: Henchman 2 <3,FRIENDSANITY,Stardew Valley Expanded
++90053,Witch's Swamp,Friendsanity: Henchman 3 <3,FRIENDSANITY,Stardew Valley Expanded
++90054,Witch's Swamp,Friendsanity: Henchman 4 <3,FRIENDSANITY,Stardew Valley Expanded
++90055,Witch's Swamp,Friendsanity: Henchman 5 <3,FRIENDSANITY,Stardew Valley Expanded
++90056,Witch's Swamp,Friendsanity: Henchman 6 <3,FRIENDSANITY,Stardew Valley Expanded
++90057,Witch's Swamp,Friendsanity: Henchman 7 <3,FRIENDSANITY,Stardew Valley Expanded
++90058,Witch's Swamp,Friendsanity: Henchman 8 <3,FRIENDSANITY,Stardew Valley Expanded
++90059,Witch's Swamp,Friendsanity: Henchman 9 <3,FRIENDSANITY,Stardew Valley Expanded
++90060,Witch's Swamp,Friendsanity: Henchman 10 <3,FRIENDSANITY,Stardew Valley Expanded
++90061,Scarlett's House,Friendsanity: Scarlett 11 <3,FRIENDSANITY,Stardew Valley Expanded
++90062,Scarlett's House,Friendsanity: Scarlett 12 <3,FRIENDSANITY,Stardew Valley Expanded
++90063,Scarlett's House,Friendsanity: Scarlett 13 <3,FRIENDSANITY,Stardew Valley Expanded
++90064,Scarlett's House,Friendsanity: Scarlett 14 <3,FRIENDSANITY,Stardew Valley Expanded
++90065,Museum,Museumsanity: Amber,MUSEUM_MODDED_DONATIONS,Stardew Valley Expanded
++90066,Museum,Museumsanity: Boomerang,MUSEUM_MODDED_DONATIONS,Stardew Valley Expanded
++90067,Museum,Museumsanity: Faded Button,MUSEUM_MODDED_DONATIONS,Stardew Valley Expanded
++90068,Museum,Museumsanity: Fossilized Apple,MUSEUM_MODDED_DONATIONS,Stardew Valley Expanded
++90069,Museum,Museumsanity: Old Coin,MUSEUM_MODDED_DONATIONS,Stardew Valley Expanded
++90070,Museum,Museumsanity: Rusty Shield,MUSEUM_MODDED_DONATIONS,Stardew Valley Expanded
++90071,Museum,Museumsanity: Stone of Yoba,MUSEUM_MODDED_DONATIONS,Stardew Valley Expanded
++90072,Shipping,Shipsanity: Arrowhead Shark,"SHIPSANITY,SHIPSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90073,Shipping,Shipsanity: Barred Knifejaw,"SHIPSANITY,SHIPSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90074,Shipping,Shipsanity: Blue Tang,"SHIPSANITY,SHIPSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90075,Shipping,Shipsanity: Fiber Goby,"SHIPSANITY,SHIPSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90076,Shipping,Shipsanity: Gar,"SHIPSANITY,SHIPSANITY_FISH",Stardew Valley Expanded
++90077,Shipping,Shipsanity: Goldfish,"SHIPSANITY,SHIPSANITY_FISH",Stardew Valley Expanded
++90078,Shipping,Shipsanity: Highlands Bass,"SHIPSANITY,SHIPSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90079,Shipping,Shipsanity: Ocean Sunfish,"SHIPSANITY,SHIPSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90080,Shipping,Shipsanity: Shark,"SHIPSANITY,SHIPSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90081,Shipping,Shipsanity: Tadpole,"SHIPSANITY,SHIPSANITY_FISH",Stardew Valley Expanded
++90082,Shipping,Shipsanity: Turretfish,"SHIPSANITY,SHIPSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90083,Shipping,Shipsanity: Viper Eel,"SHIPSANITY,SHIPSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90084,Shipping,Shipsanity: Wolf Snapper,"SHIPSANITY,SHIPSANITY_FISH",Stardew Valley Expanded
++90085,Shipping,Shipsanity: Dulse Seaweed,SHIPSANITY,Stardew Valley Expanded
++90086,Shipping,Shipsanity: Fish Dumpling,SHIPSANITY,Stardew Valley Expanded
++90087,Shipping,Shipsanity: Ramen,SHIPSANITY,Stardew Valley Expanded
++90088,Shipping,Shipsanity: Baked Potato,SHIPSANITY,Stardew Valley Expanded
++90089,Shipping,Shipsanity: Grilled Cheese Sandwich,SHIPSANITY,Stardew Valley Expanded
++90090,Shipping,Shipsanity: Nectarine Fruit Bread,SHIPSANITY,Stardew Valley Expanded
++90091,Shipping,Shipsanity: Glazed Pear,SHIPSANITY,Stardew Valley Expanded
++90092,Shipping,Shipsanity: Stuffed Persimmon,SHIPSANITY,Stardew Valley Expanded
++90093,Shipping,Shipsanity: Cheese Charcuterie,SHIPSANITY,Stardew Valley Expanded
++90094,Shipping,Shipsanity: Candy,SHIPSANITY,Stardew Valley Expanded
++90095,Shipping,Shipsanity: Birch Syrup,SHIPSANITY,Stardew Valley Expanded
++90096,Shipping,Shipsanity: Vegan Cone,SHIPSANITY,Stardew Valley Expanded
++90097,Shipping,Shipsanity: Ice Cream Sundae,SHIPSANITY,Stardew Valley Expanded
++90098,Shipping,Shipsanity: Cucumber,"SHIPSANITY,SHIPSANITY_CROP,SHIPSANITY_FULL_SHIPMENT",Stardew Valley Expanded
++90099,Shipping,Shipsanity: Butternut Squash,"SHIPSANITY,SHIPSANITY_CROP,SHIPSANITY_FULL_SHIPMENT",Stardew Valley Expanded
++90100,Shipping,Shipsanity: Sweet Potato,"SHIPSANITY,SHIPSANITY_CROP,SHIPSANITY_FULL_SHIPMENT",Stardew Valley Expanded
++90101,Shipping,Shipsanity: Gold Carrot,"SHIPSANITY,SHIPSANITY_CROP,SHIPSANITY_FULL_SHIPMENT",Stardew Valley Expanded
++90102,Shipping,Shipsanity: Pear,"SHIPSANITY,SHIPSANITY_CROP,SHIPSANITY_FULL_SHIPMENT",Stardew Valley Expanded
++90103,Shipping,Shipsanity: Nectarine,"SHIPSANITY,SHIPSANITY_CROP,SHIPSANITY_FULL_SHIPMENT",Stardew Valley Expanded
++90104,Shipping,Shipsanity: Persimmon,"SHIPSANITY,SHIPSANITY_CROP,SHIPSANITY_FULL_SHIPMENT",Stardew Valley Expanded
++90105,Shipping,Shipsanity: Cucumber Seed,SHIPSANITY,Stardew Valley Expanded
++90106,Shipping,Shipsanity: Butternut Squash Seed,SHIPSANITY,Stardew Valley Expanded
++90107,Shipping,Shipsanity: Sweet Potato Seed,SHIPSANITY,Stardew Valley Expanded
++90108,Shipping,Shipsanity: Gold Carrot Seed,SHIPSANITY,Stardew Valley Expanded
++90109,Shipping,Shipsanity: Pear Sapling,SHIPSANITY,Stardew Valley Expanded
++90110,Shipping,Shipsanity: Nectarine Sapling,SHIPSANITY,Stardew Valley Expanded
++90111,Shipping,Shipsanity: Persimmon Sapling,SHIPSANITY,Stardew Valley Expanded
++90112,Shipping,Shipsanity: Bombardier Elixir,SHIPSANITY,Stardew Valley Expanded
++90113,Shipping,Shipsanity: Wind Totem,SHIPSANITY,Stardew Valley Expanded
++90114,Shipping,Shipsanity: Sun Totem,SHIPSANITY,Stardew Valley Expanded
++90115,Shipping,Shipsanity: Small Hardwood Fence,SHIPSANITY,Stardew Valley Expanded
++90116,Shipping,Shipsanity: Hedge Fence,SHIPSANITY,Stardew Valley Expanded
++90117,Shipping,Shipsanity: Butter,SHIPSANITY,Stardew Valley Expanded
++90118,Shipping,Shipsanity: Birch Water,SHIPSANITY,Stardew Valley Expanded
++90119,Shipping,Shipsanity: Fir Wax,SHIPSANITY,Stardew Valley Expanded
++90120,Shipping,Shipsanity: Amber,SHIPSANITY,Stardew Valley Expanded
++90121,Shipping,Shipsanity: Boomerang,SHIPSANITY,Stardew Valley Expanded
++90122,Shipping,Shipsanity: Faded Button,SHIPSANITY,Stardew Valley Expanded
++90123,Shipping,Shipsanity: Fossilized Apple,SHIPSANITY,Stardew Valley Expanded
++90124,Shipping,Shipsanity: Old Coin,SHIPSANITY,Stardew Valley Expanded
++90125,Shipping,Shipsanity: Rusty Shield,SHIPSANITY,Stardew Valley Expanded
++90126,Shipping,Shipsanity: Stone of Yoba,SHIPSANITY,Stardew Valley Expanded
++90127,Farm,Eat Baby Lunaloo,"EATSANITY,EATSANITY_FISH,EATSANITY_POISONOUS,GINGER_ISLAND",Stardew Valley Expanded
++90128,Farm,Eat Bonefish,"EATSANITY,EATSANITY_FISH,EATSANITY_POISONOUS",Stardew Valley Expanded
++90129,Farm,Eat Bull Trout,"EATSANITY,EATSANITY_FISH",Stardew Valley Expanded
++90130,Farm,Eat Butterfish,"EATSANITY,EATSANITY_FISH",Stardew Valley Expanded
++90131,Farm,Eat Clownfish,"EATSANITY,EATSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90132,Farm,Eat Daggerfish,"EATSANITY,EATSANITY_FISH,EATSANITY_POISONOUS,GINGER_ISLAND",Stardew Valley Expanded
++90133,Farm,Eat Frog,"EATSANITY,EATSANITY_FISH,EATSANITY_POISONOUS",Stardew Valley Expanded
++90134,Farm,Eat Gemfish,"EATSANITY,EATSANITY_FISH,EATSANITY_POISONOUS,GINGER_ISLAND",Stardew Valley Expanded
++90135,Farm,Eat Goldenfish,"EATSANITY,EATSANITY_FISH",Stardew Valley Expanded
++90136,Farm,Eat Grass Carp,"EATSANITY,EATSANITY_FISH",Stardew Valley Expanded
++90137,Farm,Eat King Salmon,"EATSANITY,EATSANITY_FISH",Stardew Valley Expanded
++90138,Farm,Eat Kittyfish,"EATSANITY,EATSANITY_FISH",Stardew Valley Expanded
++90139,Farm,Eat Lunaloo,"EATSANITY,EATSANITY_FISH,EATSANITY_POISONOUS,GINGER_ISLAND",Stardew Valley Expanded
++90140,Farm,Eat Meteor Carp,"EATSANITY,EATSANITY_FISH,EATSANITY_POISONOUS",Stardew Valley Expanded
++90141,Farm,Eat Minnow,"EATSANITY,EATSANITY_FISH",Stardew Valley Expanded
++90142,Farm,Eat Puppyfish,"EATSANITY,EATSANITY_FISH",Stardew Valley Expanded
++90143,Farm,Eat Radioactive Bass,"EATSANITY,EATSANITY_FISH,EATSANITY_POISONOUS",Stardew Valley Expanded
++90144,Farm,Eat Seahorse,"EATSANITY,EATSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90145,Farm,Eat Shiny Lunaloo,"EATSANITY,EATSANITY_FISH,EATSANITY_POISONOUS,GINGER_ISLAND",Stardew Valley Expanded
++90146,Farm,Eat Snatcher Worm,"EATSANITY,EATSANITY_FISH",Stardew Valley Expanded
++90147,Farm,Eat Starfish,"EATSANITY,EATSANITY_FISH,EATSANITY_POISONOUS,GINGER_ISLAND",Stardew Valley Expanded
++90148,Farm,Eat Torpedo Trout,"EATSANITY,EATSANITY_FISH,EATSANITY_POISONOUS,GINGER_ISLAND",Stardew Valley Expanded
++90149,Farm,Eat Undeadfish,"EATSANITY,EATSANITY_FISH,EATSANITY_POISONOUS",Stardew Valley Expanded
++90150,Farm,Eat Void Eel,"EATSANITY,EATSANITY_FISH,EATSANITY_POISONOUS",Stardew Valley Expanded
++90151,Farm,Eat Water Grub,"EATSANITY,EATSANITY_FISH",Stardew Valley Expanded
++90152,Farm,Eat Sea Sponge,"EATSANITY,EATSANITY_FISH,EATSANITY_POISONOUS,GINGER_ISLAND",Stardew Valley Expanded
++90153,Farm,Eat Arrowhead Shark,"EATSANITY,EATSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90154,Farm,Eat Barred Knifejaw,"EATSANITY,EATSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90155,Farm,Eat Blue Tang,"EATSANITY,EATSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90156,Farm,Eat Fiber Goby,"EATSANITY,EATSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90157,Farm,Eat Gar,"EATSANITY,EATSANITY_FISH",Stardew Valley Expanded
++90158,Farm,Eat Goldfish,"EATSANITY,EATSANITY_FISH",Stardew Valley Expanded
++90159,Farm,Eat Highlands Bass,"EATSANITY,EATSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90160,Farm,Eat Ocean Sunfish,"EATSANITY,EATSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90161,Farm,Eat Shark,"EATSANITY,EATSANITY_FISH,GINGER_ISLAND",Stardew Valley Expanded
++90162,Farm,Eat Tadpole,"EATSANITY,EATSANITY_FISH",Stardew Valley Expanded
++90163,Farm,Eat Turretfish,"EATSANITY,EATSANITY_FISH,EATSANITY_POISONOUS,GINGER_ISLAND",Stardew Valley Expanded
++90164,Farm,Eat Viper Eel,"EATSANITY,EATSANITY_FISH,EATSANITY_POISONOUS,GINGER_ISLAND",Stardew Valley Expanded
++90165,Farm,Eat Wolf Snapper,"EATSANITY,EATSANITY_FISH",Stardew Valley Expanded
++90166,Farm,Eat Ancient Fiber,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90167,Farm,Eat Monster Mushroom,"EATSANITY,EATSANITY_CROP,GINGER_ISLAND",Stardew Valley Expanded
++90168,Farm,Eat Void Root,"EATSANITY,EATSANITY_CROP,EATSANITY_POISONOUS,GINGER_ISLAND",Stardew Valley Expanded
++90169,Farm,Eat Salal Berry,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90170,Farm,Eat Slime Berry,"EATSANITY,EATSANITY_CROP,EATSANITY_POISONOUS,GINGER_ISLAND",Stardew Valley Expanded
++90171,Farm,Eat Monster Fruit,"EATSANITY,EATSANITY_CROP,GINGER_ISLAND",Stardew Valley Expanded
++90172,Farm,Eat Bearberry,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90173,Farm,Eat Dewdrop Berry,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90174,Farm,Eat Red Baneberry,"EATSANITY,EATSANITY_CROP,EATSANITY_POISONOUS",Stardew Valley Expanded
++90175,Farm,Eat Poison Mushroom,"EATSANITY,EATSANITY_CROP,EATSANITY_POISONOUS",Stardew Valley Expanded
++90176,Farm,Eat Green Mushroom,"EATSANITY,EATSANITY_CROP,GINGER_ISLAND",Stardew Valley Expanded
++90177,Farm,Eat Mushroom Colony,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90178,Farm,Eat Ferngill Primrose,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90179,Farm,Eat Goldenrod,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90180,Farm,Eat Thistle,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90181,Farm,Eat Winter Star Rose,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90182,Farm,Eat Dulse Seaweed,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90183,Farm,Eat Cucumber,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90184,Farm,Eat Butternut Squash,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90185,Farm,Eat Sweet Potato,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90186,Farm,Eat Gold Carrot,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90187,Farm,Eat Pear,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90188,Farm,Eat Nectarine,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90189,Farm,Eat Persimmon,"EATSANITY,EATSANITY_CROP",Stardew Valley Expanded
++90190,Farm,Eat Baked Berry Oatmeal,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90191,Farm,Eat Big Bark Burger,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90192,Farm,Eat Flower Cookie,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90193,Farm,Eat Frog Legs,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90194,Farm,Eat Glazed Butterfish,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90195,Farm,Eat Mixed Berry Pie,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90196,Farm,Eat Mushroom Berry Rice,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90197,Farm,Eat Seaweed Salad,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90198,Farm,Eat Void Delight,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90199,Farm,Eat Void Salmon Sushi,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90200,Farm,Eat Grampleton Orange Chicken,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90201,Farm,Eat Fish Dumpling,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90202,Farm,Eat Ramen,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90203,Farm,Eat Baked Potato,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90204,Farm,Eat Grilled Cheese Sandwich,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90205,Farm,Eat Nectarine Fruit Bread,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90206,Farm,Eat Glazed Pear,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90207,Farm,Eat Stuffed Persimmon,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90208,Farm,Eat Cheese Charcuterie,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90209,Farm,Eat Candy,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90210,Farm,Drink Birch Syrup,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90211,Farm,Eat Vegan Cone,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90212,Farm,Eat Ice Cream Sundae,"EATSANITY,EATSANITY_COOKING",Stardew Valley Expanded
++90213,Farm,Drink Aged Blue Moon Wine,"EATSANITY,EATSANITY_ARTISAN",Stardew Valley Expanded
++90214,Farm,Drink Blue Moon Wine,"EATSANITY,EATSANITY_ARTISAN",Stardew Valley Expanded
++90215,Farm,Eat Butter,"EATSANITY,EATSANITY_ARTISAN",Stardew Valley Expanded
++90216,Farm,Eat Stamina Capsule,"EATSANITY,EATSANITY_SHOP",Stardew Valley Expanded
++90217,Farm,Drink Sports Drink,"EATSANITY,EATSANITY_SHOP",Stardew Valley Expanded
++90218,Farm,Eat Aegis Elixir,"EATSANITY,EATSANITY_SHOP",Stardew Valley Expanded
++90219,Farm,Eat Armor Elixir,"EATSANITY,EATSANITY_SHOP",Stardew Valley Expanded
++90220,Farm,Eat Barbarian Elixir,"EATSANITY,EATSANITY_SHOP",Stardew Valley Expanded
++90221,Farm,Drink Gravity Elixir,"EATSANITY,EATSANITY_SHOP",Stardew Valley Expanded
++90222,Farm,Drink Haste Elixir,"EATSANITY,EATSANITY_SHOP",Stardew Valley Expanded
++90223,Farm,Eat Hero Elixir,"EATSANITY,EATSANITY_SHOP",Stardew Valley Expanded
++90224,Farm,Drink Lightning Elixir,"EATSANITY,EATSANITY_SHOP",Stardew Valley Expanded
++90225,Farm,Drink Bombardier Elixir,"EATSANITY,EATSANITY_SHOP",Stardew Valley Expanded
++90226,Farm,Drink Birch Water,"EATSANITY,EATSANITY_SHOP",Stardew Valley Expanded
+diff --git a/worlds/stardew_valley/data/recipe_data.py b/worlds/stardew_valley/data/recipe_data.py
+index 66afb90..4d13d84 100644
+--- a/worlds/stardew_valley/data/recipe_data.py
++++ b/worlds/stardew_valley/data/recipe_data.py
+@@ -4,7 +4,7 @@ from .recipe_source import RecipeSource, FriendshipSource, SkillSource, QueenOfS
+ from ..content.content_packs import ginger_island_content_pack
+ from ..mods.mod_data import ModNames
+ from ..strings.animal_product_names import AnimalProduct
+-from ..strings.artisan_good_names import ArtisanGood
++from ..strings.artisan_good_names import ArtisanGood, SVEArtisanGood
+ from ..strings.craftable_names import ModEdible, Edible
+ from ..strings.crop_names import Fruit, Vegetable, SVEFruit, DistantLandsCrop
+ from ..strings.fish_names import Fish, SVEFish, WaterItem, DistantLandsFish, SVEWaterItem
+@@ -12,7 +12,7 @@ from ..strings.flower_names import Flower
+ from ..strings.food_names import Meal, SVEMeal, Beverage, DistantLandsMeal, BoardingHouseMeal, ArchaeologyMeal, TrashyMeal
+ from ..strings.forageable_names import Forageable, SVEForage, Mushroom
+ from ..strings.ingredient_names import Ingredient
+-from ..strings.material_names import Material
++from ..strings.material_names import Material, SVEMaterial
+ from ..strings.metal_names import Fossil, Artifact
+ from ..strings.monster_drop_names import Loot
+ from ..strings.region_names import Region, SVERegion
+@@ -212,6 +212,25 @@ void_delight = friendship_and_shop_recipe(SVEMeal.void_delight, NPC.krobus, 10,
+                                           {SVEFish.void_eel: 1, Loot.void_essence: 50, Loot.solar_essence: 20}, content_pack=ModNames.sve)
+ void_salmon_sushi = friendship_and_shop_recipe(SVEMeal.void_salmon_sushi, NPC.krobus, 10, Region.sewer, 5000,
+                                                {Fish.void_salmon: 1, ArtisanGood.void_mayonnaise: 1, WaterItem.seaweed: 3}, content_pack=ModNames.sve)
++# Added for SVE 1.15
++fish_dumpling = friendship_recipe(SVEMeal.fish_dumpling, ModNPC.olivia, 3, {Fish.any: 1, Ingredient.wheat_flour: 1, Ingredient.oil: 1}, content_pack=ModNames.sve)
++ramen = friendship_recipe(SVEMeal.ramen, ModNPC.victor, 3, {Ingredient.wheat_flour: 1, WaterItem.seaweed: 1, AnimalProduct.any_egg: 1, Ingredient.oil: 1},
++                          content_pack=ModNames.sve)
++baked_potato = friendship_recipe(SVEMeal.baked_potato, ModNPC.gunther, 3, {Vegetable.potato: 1, SVEArtisanGood.butter: 1}, content_pack=ModNames.sve)
++grilled_cheese_sandwich = friendship_recipe(SVEMeal.grilled_cheese_sandwich, ModNPC.martin, 3,
++                                            {ArtisanGood.cheese: 1, Meal.bread: 1, SVEArtisanGood.butter: 1}, content_pack=ModNames.sve)
++nectarine_fruit_bread = friendship_recipe(SVEMeal.nectarine_fruit_bread, ModNPC.claire, 3,
++                                          {SVEFruit.nectarine: 1, Ingredient.wheat_flour: 1, Ingredient.sugar: 1}, content_pack=ModNames.sve)
++glazed_pear = friendship_recipe(SVEMeal.glazed_pear, ModNPC.morgan, 3,
++                                {SVEFruit.pear: 1, Ingredient.sugar: 1, Ingredient.wheat_flour: 1, SVEArtisanGood.butter: 1}, content_pack=ModNames.sve)
++stuffed_persimmon = friendship_recipe(SVEMeal.stuffed_persimmon, ModNPC.andy, 3,
++                                      {SVEFruit.persimmon: 1, Meal.stuffing: 1, Meal.bread: 1, SVEArtisanGood.butter: 1}, content_pack=ModNames.sve)
++cheese_charcuterie = friendship_recipe(SVEMeal.cheese_charcuterie, ModNPC.scarlett, 3,
++                                       {ArtisanGood.cheese: 1, ArtisanGood.goat_cheese: 1, Ingredient.wheat_flour: 1, SVEArtisanGood.butter: 1},
++                                       content_pack=ModNames.sve)
++birch_syrup = shop_recipe(SVEMeal.birch_syrup, Region.pierre_store, 2500, {SVEMaterial.birch_water: 3, Material.sap: 25}, content_pack=ModNames.sve)
++candy = shop_recipe(SVEMeal.candy, Region.saloon, 10000, {SVEMeal.birch_syrup: 1, SVEMaterial.birch_water: 1, Ingredient.sugar: 1}, content_pack=ModNames.sve)
++vegan_cone = shop_recipe(SVEMeal.vegan_cone, Region.oasis, 3000, {Forageable.coconut: 1, Ingredient.sugar: 1}, content_pack=ModNames.sve)
+ 
+ mushroom_kebab = friendship_recipe(DistantLandsMeal.mushroom_kebab, ModNPC.goblin, 2, {Mushroom.chanterelle: 1, Mushroom.common: 1,
+                                                                                        Mushroom.red: 1, Material.wood: 1}, content_pack=ModNames.distant_lands)
+diff --git a/worlds/stardew_valley/data/villagers_data.py b/worlds/stardew_valley/data/villagers_data.py
+index c1468c8..84dd83a 100644
+--- a/worlds/stardew_valley/data/villagers_data.py
++++ b/worlds/stardew_valley/data/villagers_data.py
+@@ -363,6 +363,8 @@ gunther_loves = bean_hotpot + petrified_slime + salmon_dinner + elvish_jewelry +
+ marlon_loves = roots_platter + life_elixir + aged_blue_moon_wine + void_delight
+ martin_loves = juice + ice_cream + big_bark_burger
+ morgan_loves = iridium_bar + void_egg + void_mayonnaise + frog + kittyfish
++henchman_loves = ("Marsh Tonic", "Golden Goose Egg", "Supernatural Goo", "Void Shard", "Void Salmon Sushi", "Void Root", "Void Pebble", "Void Delight",
++                  "Swirl Stone")
+ morris_loves = lobster_bisque + chowder + truffle_oil + star_shards + aged_blue_moon_wine
+ scarlett_loves = goat_cheese + duck_feather + goat_milk + cherry + maple_syrup + honey + \
+                  chocolate_cake + pink_cake + jade + glazed_yams  # actually large milk but meh
+@@ -443,6 +445,8 @@ gunther = villager(ModNPC.gunther, False, museum, Season.winter, universal_loves
+ martin = villager(ModNPC.martin, False, town + jojamart, Season.summer, universal_loves + martin_loves, True, ModNames.sve)
+ marlon = villager(ModNPC.marlon, False, adventurer, Season.winter, universal_loves + marlon_loves, False, ModNames.sve)
+ morgan = villager(ModNPC.morgan, False, wizard_tower, Season.fall, universal_loves_no_rabbit_foot + morgan_loves, False, ModNames.sve)
+-scarlett = villager(ModNPC.scarlett, False, bluemoon, Season.summer, universal_loves + scarlett_loves, False, ModNames.sve)
++# Scarlett can be romanced since SVE 1.15
++scarlett = villager(ModNPC.scarlett, True, bluemoon, Season.summer, universal_loves + scarlett_loves, False, ModNames.sve)
+ susan = villager(ModNPC.susan, False, railroad, Season.fall, universal_loves + susan_loves, False, ModNames.sve)
+ morris = villager(ModNPC.morris, False, jojamart, Season.spring, universal_loves + morris_loves, True, ModNames.sve)
++henchman = villager(ModNPC.henchman, False, witch_swamp, Generic.any, henchman_loves, False, ModNames.sve)
+diff --git a/worlds/stardew_valley/locations.py b/worlds/stardew_valley/locations.py
+index a817022..54c3054 100644
+--- a/worlds/stardew_valley/locations.py
++++ b/worlds/stardew_valley/locations.py
+@@ -77,6 +77,7 @@ class LocationTags(enum.Enum):
+     FISHSANITY = enum.auto()
+     MUSEUM_MILESTONES = enum.auto()
+     MUSEUM_DONATIONS = enum.auto()
++    MUSEUM_MODDED_DONATIONS = enum.auto()
+     FRIENDSANITY = enum.auto()
+     FESTIVAL = enum.auto()
+     FESTIVAL_HARD = enum.auto()
+@@ -301,6 +302,10 @@ def extend_museumsanity_locations(randomized_locations: List[LocationData], opti
+     elif options.museumsanity == Museumsanity.option_all:
+         randomized_locations.extend(location_table[f"{prefix}{museum_item.item_name}"] for museum_item in all_museum_items)
+ 
++    if ModNames.sve in options.mods and options.museumsanity in (Museumsanity.option_randomized, Museumsanity.option_all):
++        # Modded donations are not part of the vanilla museum lists, so they never count toward milestones.
++        randomized_locations.extend(locations_by_tag[LocationTags.MUSEUM_MODDED_DONATIONS])
++
+ 
+ def extend_friendsanity_locations(randomized_locations: List[LocationData], content: StardewContent):
+     friendsanity = content.features.friendsanity
+diff --git a/worlds/stardew_valley/logic/relationship_logic.py b/worlds/stardew_valley/logic/relationship_logic.py
+index 5fa40bf..051f5aa 100644
+--- a/worlds/stardew_valley/logic/relationship_logic.py
++++ b/worlds/stardew_valley/logic/relationship_logic.py
+@@ -9,8 +9,10 @@ from ..stardew_rule import StardewRule, True_, false_, true_
+ from ..strings.ap_names.ap_option_names import CustomLogicOptionName
+ from ..strings.ap_names.mods.mod_items import SVEQuestItem
+ from ..strings.building_names import Building
++from ..strings.forageable_names import Mushroom
+ from ..strings.generic_names import Generic
+ from ..strings.gift_names import Gift
++from ..strings.quest_names import Quest
+ from ..strings.region_names import Region, LogicRegion
+ from ..strings.season_names import Season
+ from ..strings.villager_names import NPC, ModNPC
+@@ -149,6 +151,11 @@ class RelationshipLogic(BaseLogic):
+         elif npc == ModNPC.morgan:
+             rules.append(self.logic.received(SVEQuestItem.morgan_schooling))
+ 
++        elif npc == ModNPC.henchman:
++            # He only appears once his house is repaired, which needs the Magic Ink quest and the mushrooms of the "A Witch Offering" order.
++            rules.append(self.logic.quest.can_complete_quest(Quest.magic_ink))
++            rules.append(self.logic.has_all(Mushroom.red, Mushroom.purple, Mushroom.morel, Mushroom.chanterelle))
++
+         elif npc == ModNPC.goblin:
+             rules.append(self.logic.region.can_reach_all(Region.witch_hut, Region.wizard_tower))
+ 
+diff --git a/worlds/stardew_valley/rules.py b/worlds/stardew_valley/rules.py
+index b0fb877..86f3e41 100644
+--- a/worlds/stardew_valley/rules.py
++++ b/worlds/stardew_valley/rules.py
+@@ -726,6 +726,10 @@ def set_museum_individual_donations_rules(all_location_names, logic: StardewLogi
+             rule_collector.set_location_rule(museum_location.name, rule)
+         counter += 1
+ 
++    for modded_donation in locations.locations_by_tag[LocationTags.MUSEUM_MODDED_DONATIONS]:
++        if modded_donation.name in all_location_names:
++            rule_collector.set_location_rule(modded_donation.name, logic.has(modded_donation.name[len(museum_prefix):]))
++
+ 
+ def set_museum_milestone_rule(logic: StardewLogic, rule_collector: StardewRuleCollector, museum_milestone, museum_prefix: str):
+     milestone_name = museum_milestone.name[len(museum_prefix):]
+diff --git a/worlds/stardew_valley/strings/artisan_good_names.py b/worlds/stardew_valley/strings/artisan_good_names.py
+index fbe2fa7..66cb532 100644
+--- a/worlds/stardew_valley/strings/artisan_good_names.py
++++ b/worlds/stardew_valley/strings/artisan_good_names.py
+@@ -77,3 +77,7 @@ class ArtisanGood:
+ 
+ class ModArtisanGood:
+     pterodactyl_egg = "Pterodactyl Egg"
++
++
++class SVEArtisanGood:
++    butter = "Butter"
+diff --git a/worlds/stardew_valley/strings/craftable_names.py b/worlds/stardew_valley/strings/craftable_names.py
+index e687f64..a1e06ae 100644
+--- a/worlds/stardew_valley/strings/craftable_names.py
++++ b/worlds/stardew_valley/strings/craftable_names.py
+@@ -225,3 +225,16 @@ class ModConsumable:
+     ginger_tincture = "Ginger Tincture"
+ 
+ 
++
++
++class SVECraftable:
++    small_hardwood_fence = "Small Hardwood Fence"
++    hedge_fence = "Hedge Fence"
++    bombardier_elixir = "Bombardier Elixir"
++    sun_totem = "Sun Totem"
++    wind_totem = "Wind Totem"
++
++
++class SVEMachine:
++    butter_churner = "Butter Churner"
++    yarn_spooler = "Yarn Spooler"
+diff --git a/worlds/stardew_valley/strings/crop_names.py b/worlds/stardew_valley/strings/crop_names.py
+index fa7a77c..c7da496 100644
+--- a/worlds/stardew_valley/strings/crop_names.py
++++ b/worlds/stardew_valley/strings/crop_names.py
+@@ -56,12 +56,19 @@ class SVEFruit:
+     slime_berry = "Slime Berry"
+     monster_fruit = "Monster Fruit"
+     salal_berry = "Salal Berry"
++    pear = "Pear"
++    nectarine = "Nectarine"
++    persimmon = "Persimmon"
+ 
+ 
+ class SVEVegetable:
+     monster_mushroom = "Monster Mushroom"
+     void_root = "Void Root"
+     ancient_fiber = "Ancient Fiber"
++    cucumber = "Cucumber"
++    butternut_squash = "Butternut Squash"
++    sweet_potato = "Sweet Potato"
++    gold_carrot = "Gold Carrot"
+ 
+ 
+ class DistantLandsCrop:
+diff --git a/worlds/stardew_valley/strings/fish_names.py b/worlds/stardew_valley/strings/fish_names.py
+index d4ee814..994b2b9 100644
+--- a/worlds/stardew_valley/strings/fish_names.py
++++ b/worlds/stardew_valley/strings/fish_names.py
+@@ -137,6 +137,19 @@ class SVEFish:
+     void_eel = "Void Eel"
+     water_grub = "Water Grub"
+     sea_sponge = "Sea Sponge"
++    arrowhead_shark = "Arrowhead Shark"
++    barred_knifejaw = "Barred Knifejaw"
++    blue_tang = "Blue Tang"
++    fiber_goby = "Fiber Goby"
++    gar = "Gar"
++    goldfish = "Goldfish"
++    highlands_bass = "Highlands Bass"
++    ocean_sunfish = "Ocean Sunfish"
++    shark = "Shark"
++    tadpole = "Tadpole"
++    turretfish = "Turretfish"
++    viper_eel = "Viper Eel"
++    wolf_snapper = "Wolf Snapper"
+ 
+ 
+ class DistantLandsFish:
+diff --git a/worlds/stardew_valley/strings/food_names.py b/worlds/stardew_valley/strings/food_names.py
+index 0378433..244713b 100644
+--- a/worlds/stardew_valley/strings/food_names.py
++++ b/worlds/stardew_valley/strings/food_names.py
+@@ -103,6 +103,19 @@ class SVEMeal:
+     void_salmon_sushi = "Void Salmon Sushi"
+     grampleton_orange_chicken = "Grampleton Orange Chicken"
+     stamina_capsule = "Stamina Capsule"
++    fish_dumpling = "Fish Dumpling"
++    ramen = "Ramen"
++    baked_potato = "Baked Potato"
++    grilled_cheese_sandwich = "Grilled Cheese Sandwich"
++    pineapple_custard_crepe = "Pineapple Custard Crepe"
++    nectarine_fruit_bread = "Nectarine Fruit Bread"
++    glazed_pear = "Glazed Pear"
++    stuffed_persimmon = "Stuffed Persimmon"
++    cheese_charcuterie = "Cheese Charcuterie"
++    candy = "Candy"
++    vegan_cone = "Vegan Cone"
++    ice_cream_sundae = "Ice Cream Sundae"
++    birch_syrup = "Birch Syrup"
+ 
+ 
+ class TrashyMeal:
+diff --git a/worlds/stardew_valley/strings/fruit_tree_names.py b/worlds/stardew_valley/strings/fruit_tree_names.py
+index fce3420..70b7d4e 100644
+--- a/worlds/stardew_valley/strings/fruit_tree_names.py
++++ b/worlds/stardew_valley/strings/fruit_tree_names.py
+@@ -7,3 +7,9 @@ class Sapling:
+     pomegranate = "Pomegranate Sapling"
+     banana = "Banana Sapling"
+     mango = "Mango Sapling"
++
++
++class SVESapling:
++    pear = "Pear Sapling"
++    nectarine = "Nectarine Sapling"
++    persimmon = "Persimmon Sapling"
+diff --git a/worlds/stardew_valley/strings/material_names.py b/worlds/stardew_valley/strings/material_names.py
+index 797a42b..571dc9d 100644
+--- a/worlds/stardew_valley/strings/material_names.py
++++ b/worlds/stardew_valley/strings/material_names.py
+@@ -8,3 +8,8 @@ class Material:
+     wood = "Wood"
+     clay = "Clay"
+     cinder_shard = "Cinder Shard"
++
++
++class SVEMaterial:
++    birch_water = "Birch Water"
++    fir_wax = "Fir Wax"
+diff --git a/worlds/stardew_valley/strings/metal_names.py b/worlds/stardew_valley/strings/metal_names.py
+index fa0d018..d6de4ba 100644
+--- a/worlds/stardew_valley/strings/metal_names.py
++++ b/worlds/stardew_valley/strings/metal_names.py
+@@ -150,3 +150,13 @@ class ModFossil:
+     pterodactyl_ribs = "Pterodactyl Ribs"
+     pterodactyl_skull = "Pterodactyl Skull"
+     pterodactyl_vertebra = "Pterodactyl Vertebra"
++
++
++class SVEArtifact:
++    amber = "Amber"
++    boomerang = "Boomerang"
++    faded_button = "Faded Button"
++    fossilized_apple = "Fossilized Apple"
++    old_coin = "Old Coin"
++    rusty_shield = "Rusty Shield"
++    stone_of_yoba = "Stone of Yoba"
+diff --git a/worlds/stardew_valley/strings/seed_names.py b/worlds/stardew_valley/strings/seed_names.py
+index f2799d4..1bbd9c9 100644
+--- a/worlds/stardew_valley/strings/seed_names.py
++++ b/worlds/stardew_valley/strings/seed_names.py
+@@ -67,6 +67,10 @@ class SVESeed:
+     void = "Void Seed"
+     shrub = "Shrub Seed"
+     ancient_fern = "Ancient Fern Seed"
++    cucumber = "Cucumber Seed"
++    butternut_squash = "Butternut Squash Seed"
++    sweet_potato = "Sweet Potato Seed"
++    gold_carrot = "Gold Carrot Seed"
+ 
+ 
+ class DistantLandsSeed:
+diff --git a/worlds/stardew_valley/strings/villager_names.py b/worlds/stardew_valley/strings/villager_names.py
+index 7e87be6..43d8312 100644
+--- a/worlds/stardew_valley/strings/villager_names.py
++++ b/worlds/stardew_valley/strings/villager_names.py
+@@ -61,6 +61,7 @@ class ModNPC:
+     morris = "Morris"
+     scarlett = "Scarlett"
+     susan = "Susan"
++    henchman = "Henchman"
+     alecto = "Alecto"
+     goblin = "Zic"
+     lacey = "Lacey"
+diff --git a/worlds/stardew_valley/test/TestFishsanity.py b/worlds/stardew_valley/test/TestFishsanity.py
+index b6f7cce..180f6a5 100644
+--- a/worlds/stardew_valley/test/TestFishsanity.py
++++ b/worlds/stardew_valley/test/TestFishsanity.py
+@@ -31,15 +31,19 @@ qi_board_legendary_fishes = {Fish.ms_angler, Fish.son_of_crimsonfish, Fish.glaci
+ 
+ sve_pelican_town_hard_fishes = {
+     SVEFish.grass_carp, SVEFish.king_salmon, SVEFish.kittyfish, SVEFish.meteor_carp, SVEFish.puppyfish, SVEFish.radioactive_bass, SVEFish.undeadfish,
+-    SVEFish.void_eel,
++    SVEFish.void_eel, SVEFish.gar, SVEFish.wolf_snapper,
+ }
+ sve_pelican_town_medium_fishes = {
+     SVEFish.bonefish, SVEFish.butterfish, SVEFish.frog, SVEFish.goldenfish, SVEFish.snatcher_worm, SVEFish.water_grub,
+ }
+-sve_pelican_town_easy_fishes = {SVEFish.bull_trout, SVEFish.minnow, }
+-sve_ginger_island_hard_fishes = {SVEFish.gemfish, SVEFish.shiny_lunaloo, }
+-sve_ginger_island_medium_fishes = {SVEFish.daggerfish, SVEFish.lunaloo, SVEFish.starfish, SVEFish.torpedo_trout, }
+-sve_ginger_island_easy_fishes = {SVEFish.baby_lunaloo, SVEFish.clownfish, SVEFish.seahorse, SVEFish.sea_sponge, }
++sve_pelican_town_easy_fishes = {SVEFish.bull_trout, SVEFish.minnow, SVEFish.tadpole, SVEFish.goldfish, }
++sve_ginger_island_hard_fishes = {
++    SVEFish.gemfish, SVEFish.shiny_lunaloo, SVEFish.arrowhead_shark, SVEFish.ocean_sunfish, SVEFish.shark, SVEFish.turretfish, SVEFish.viper_eel,
++}
++sve_ginger_island_medium_fishes = {
++    SVEFish.daggerfish, SVEFish.lunaloo, SVEFish.starfish, SVEFish.torpedo_trout, SVEFish.barred_knifejaw, SVEFish.fiber_goby,
++}
++sve_ginger_island_easy_fishes = {SVEFish.baby_lunaloo, SVEFish.clownfish, SVEFish.seahorse, SVEFish.sea_sponge, SVEFish.blue_tang, SVEFish.highlands_bass, }
+ 
+ distant_lands_hard_fishes = {DistantLandsFish.giant_horsehoe_crab, }
+ distant_lands_easy_fishes = {DistantLandsFish.void_minnow, DistantLandsFish.purple_algae, DistantLandsFish.swamp_leech, }
+diff --git a/worlds/stardew_valley/test/TestItems.py b/worlds/stardew_valley/test/TestItems.py
+index 23e0940..9601ac9 100644
+--- a/worlds/stardew_valley/test/TestItems.py
++++ b/worlds/stardew_valley/test/TestItems.py
+@@ -27,7 +27,8 @@ class TestItems(SVTestCase):
+                                    key=lambda x: x.code)
+ 
+         assert item_with_lowest_id.code >= 717000
+-        assert item_with_highest_id.code < 737000
++        # Items added by the SVE 1.15 patch live in a separate block (csv ids 90001+, codes 807001+).
++        assert item_with_highest_id.code < 817000
+ 
+     def test_babies_come_in_all_shapes_and_sizes(self):
+         baby_permutations = set()
+diff --git a/worlds/stardew_valley/test/content/mods/TestSVE.py b/worlds/stardew_valley/test/content/mods/TestSVE.py
+index 7cd0a82..2924d7b 100644
+--- a/worlds/stardew_valley/test/content/mods/TestSVE.py
++++ b/worlds/stardew_valley/test/content/mods/TestSVE.py
+@@ -8,12 +8,12 @@ from ....strings.villager_names import ModNPC, NPC
+ 
+ vanilla_villagers = 33
+ vanilla_villagers_with_leo = 34
+-sve_villagers = 13
+-sve_villagers_with_lance = 14
++sve_villagers = 14
++sve_villagers_with_lance = 15
+ vanilla_pelican_town_fish = 63
+ vanilla_ginger_island_fish = 3
+-sve_pelican_town_fish = 16
+-sve_ginger_island_fish = 10
++sve_pelican_town_fish = 20
++sve_ginger_island_fish = 19
+ 
+ 
+ class TestVanilla(SVContentPackTestBase):
+diff --git a/worlds/stardew_valley/test/mods/TestSVE115Content.py b/worlds/stardew_valley/test/mods/TestSVE115Content.py
+new file mode 100644
+index 0000000..7ecbe78
+--- /dev/null
++++ b/worlds/stardew_valley/test/mods/TestSVE115Content.py
+@@ -0,0 +1,138 @@
++"""Tests for the SVE 1.15 content added on top of the existing sanity options (ids 90001+ in the csv files)."""
++from ..assertion import WorldAssertMixin
++from ..bases import SVTestCase, solo_multiworld
++from ..options.presets import maxsanity_no_mods_7_x_x
++from ... import options
++from ...locations import location_table, LocationTags
++from ...mods.mod_data import ModNames
++
++FIRST_NEW_ID = 90001
++
++NEW_LOCATIONS = [location for location in location_table.values()
++                 if location.code_without_offset is not None and location.code_without_offset >= FIRST_NEW_ID]
++
++# category -> (tag selecting the new locations, option overrides that turn it on)
++CATEGORIES = {
++    "fishsanity": (LocationTags.FISHSANITY, {options.Fishsanity.internal_name: options.Fishsanity.option_all}),
++    "cropsanity": (LocationTags.CROPSANITY, {options.Cropsanity.internal_name: options.Cropsanity.option_enabled}),
++    "cooksanity": (LocationTags.COOKSANITY, {options.Cooksanity.internal_name: options.Cooksanity.option_all}),
++    "chefsanity": (LocationTags.CHEFSANITY, {options.Chefsanity.internal_name: options.Chefsanity.preset_all}),
++    "craftsanity": (LocationTags.CRAFTSANITY, {options.Craftsanity.internal_name: options.Craftsanity.option_all}),
++    "friendsanity": (LocationTags.FRIENDSANITY, {options.Friendsanity.internal_name: options.Friendsanity.option_all_with_marriage,
++                                                 options.FriendsanityHeartSize.internal_name: 1}),
++    "museumsanity": (LocationTags.MUSEUM_MODDED_DONATIONS, {options.Museumsanity.internal_name: options.Museumsanity.option_all}),
++    "shipsanity": (LocationTags.SHIPSANITY, {options.Shipsanity.internal_name: options.Shipsanity.option_everything}),
++    "eatsanity": (LocationTags.EATSANITY, {options.Eatsanity.internal_name: options.Eatsanity.preset_all}),
++}
++
++
++def new_locations_with_tag(tag: LocationTags):
++    return [location for location in NEW_LOCATIONS if tag in location.tags]
++
++
++def minimal_options():
++    world_options = maxsanity_no_mods_7_x_x()
++    # Everything off, then each test turns on exactly one category.
++    world_options.update({
++        options.Fishsanity.internal_name: options.Fishsanity.option_none,
++        options.Cropsanity.internal_name: options.Cropsanity.option_disabled,
++        options.Cooksanity.internal_name: options.Cooksanity.option_none,
++        options.Chefsanity.internal_name: options.Chefsanity.preset_none,
++        options.Craftsanity.internal_name: options.Craftsanity.option_none,
++        options.Friendsanity.internal_name: options.Friendsanity.option_none,
++        options.Museumsanity.internal_name: options.Museumsanity.option_none,
++        options.Shipsanity.internal_name: options.Shipsanity.option_none,
++        options.Eatsanity.internal_name: options.Eatsanity.preset_none,
++        options.Goal.internal_name: options.Goal.option_community_center,
++    })
++    return world_options
++
++
++def location_names(multiworld) -> set[str]:
++    return {location.name for location in multiworld.get_locations(1)}
++
++
++class TestSVE115LocationsPerCategory(SVTestCase):
++
++    def test_new_locations_exist_in_the_table(self):
++        self.assertEqual(FIRST_NEW_ID, min(location.code_without_offset for location in NEW_LOCATIONS))
++        ids = sorted(location.code_without_offset for location in NEW_LOCATIONS)
++        self.assertEqual(list(range(ids[0], ids[0] + len(ids))), ids, "The new location ids should be a contiguous block")
++        for location in NEW_LOCATIONS:
++            self.assertIn(ModNames.sve, location.content_packs, location.name)
++
++    def test_each_category_has_locations_with_sve_and_none_without(self):
++        for category, (tag, category_options) in CATEGORIES.items():
++            expected = [location for location in new_locations_with_tag(tag)]
++            self.assertTrue(expected, f"{category} has no new locations")
++
++            with_sve = minimal_options()
++            with_sve.update(category_options)
++            with_sve[options.Mods.internal_name] = frozenset({ModNames.sve})
++            with_sve[options.ExcludeGingerIsland.internal_name] = options.ExcludeGingerIsland.option_false
++
++            without_sve = dict(with_sve)
++            without_sve[options.Mods.internal_name] = frozenset()
++
++            with self.subTest(category=category, sve=True):
++                with solo_multiworld(with_sve) as (multiworld, _):
++                    names = location_names(multiworld)
++                    missing = [location.name for location in expected if location.name not in names]
++                    # Friendship hearts above what the datable allows and options-dependent rows are the only legit absences.
++                    allowed_missing = [name for name in missing if self._legitimately_absent(category, name)]
++                    self.assertEqual(sorted(allowed_missing), sorted(missing), f"{category}: unexpected missing locations")
++                    self.assertGreater(len(expected) - len(missing), 0, category)
++
++            with self.subTest(category=category, sve=False):
++                with solo_multiworld(without_sve) as (multiworld, _):
++                    names = location_names(multiworld)
++                    leaked = [location.name for location in NEW_LOCATIONS if location.name in names]
++                    self.assertEqual([], leaked, f"{category}: new locations present without SVE")
++
++    @staticmethod
++    def _legitimately_absent(category: str, name: str) -> bool:
++        # Eatsanity "poisonous"/"all" presets include everything, so nothing should be missing there.
++        return False
++
++    def test_ginger_island_content_is_removed_when_excluded(self):
++        for category, (tag, category_options) in CATEGORIES.items():
++            ginger = [location for location in new_locations_with_tag(tag) if LocationTags.GINGER_ISLAND in location.tags]
++            non_ginger = [location for location in new_locations_with_tag(tag) if LocationTags.GINGER_ISLAND not in location.tags]
++            world_options = minimal_options()
++            world_options.update(category_options)
++            world_options[options.Mods.internal_name] = frozenset({ModNames.sve})
++            world_options[options.ExcludeGingerIsland.internal_name] = options.ExcludeGingerIsland.option_true
++            with self.subTest(category=category):
++                with solo_multiworld(world_options) as (multiworld, _):
++                    names = location_names(multiworld)
++                    self.assertEqual([], [location.name for location in ginger if location.name in names])
++                    self.assertTrue(all(location.name in names for location in non_ginger),
++                                    [location.name for location in non_ginger if location.name not in names])
++
++
++class TestSVE115MaxsanityFill(WorldAssertMixin, SVTestCase):
++    seeds = tuple(range(1, 11))
++
++    def _run(self, exclude_island: bool):
++        for seed in self.seeds:
++            world_options = maxsanity_no_mods_7_x_x()
++            world_options[options.Mods.internal_name] = frozenset({ModNames.sve})
++            world_options[options.ExcludeGingerIsland.internal_name] = (options.ExcludeGingerIsland.option_true if exclude_island
++                                                                         else options.ExcludeGingerIsland.option_false)
++            if exclude_island:
++                # Perfection forces Ginger Island back on.
++                world_options[options.Goal.internal_name] = options.Goal.option_grandpa_evaluation
++            with self.subTest(seed=seed, exclude_island=exclude_island):
++                with solo_multiworld(world_options, seed=seed, world_caching=False) as (multiworld, _):
++                    names = location_names(multiworld)
++                    self.assertTrue(any(location.name in names for location in NEW_LOCATIONS))
++                    if exclude_island:
++                        self.assertEqual([], [location.name for location in NEW_LOCATIONS
++                                              if LocationTags.GINGER_ISLAND in location.tags and location.name in names])
++                    self.assert_basic_checks(multiworld)
++
++    def test_maxsanity_sve_with_ginger_island_10_seeds(self):
++        self._run(exclude_island=False)
++
++    def test_maxsanity_sve_without_ginger_island_10_seeds(self):
++        self._run(exclude_island=True)
