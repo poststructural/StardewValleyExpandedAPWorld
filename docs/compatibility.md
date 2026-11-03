@@ -38,7 +38,7 @@ client is not a release.
 
 ### World (generator)
 
-1. `scripts/build-world.ps1` produces an `.apworld` that loads in the pinned Archipelago build
+1. `scripts/build_world.py` produces an `.apworld` that loads in the pinned Archipelago build
    (`ArchipelagoGenerate.exe` reports no world-load error).
 2. Generate with `mods: [Stardew Valley Expanded]` together with each supported combination:
    vanilla-only, SVE + Ginger Island, SVE + Distant Lands, SVE + all enabled mods.
@@ -51,7 +51,7 @@ client is not a release.
 
 ### Mod (client)
 
-6. `scripts/build-mod.ps1` builds clean against the pinned game DLLs.
+6. `scripts/build_mod.py` builds clean against the pinned game DLLs.
 7. Launch the testbed with the built mod + SVE 1.15.11 + CP + FTM. SMAPI log has **zero** patch
    exceptions at startup; every SVE Harmony target still binds.
 8. Connect to an SVE slot. Confirm: version gate accepts 1.15.11, no "incompatible mod" false

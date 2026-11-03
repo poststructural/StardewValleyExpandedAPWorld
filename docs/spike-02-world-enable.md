@@ -30,7 +30,7 @@ Victor 9, Sophia 2, Lance 2, Marlon 2, Scarlett 1, Morgan 1).
    and the world registers as version `0.0.0`, which then fails the `requires.game` check:
    *"Settings reports required version of world Stardew Valley is at least 7.4.25, however world is of
    version 0.0.0."*
-   `scripts/build-world.ps1` now injects them from `versions.lock.apworld_container`.
+   `scripts/build_world.py` now injects them from `versions.lock.apworld_container`.
 
 2. **Packaging the tree.** `Copy-Item -Path "dir\*"` drops subdirectories, and
    `Get-ChildItem -Recurse -Directory -Include '__pycache__' | Remove-Item -Recurse` matches *every*
@@ -40,9 +40,9 @@ Victor 9, Sophia 2, Lance 2, Marlon 2, Scarlett 1, Morgan 1).
 ## Reproduce
 
 ```powershell
-./scripts/fetch-upstream.ps1     # or seed .cache from a pinned local checkout
-./scripts/apply-patches.ps1
-./scripts/build-world.ps1        # -> artifacts/stardew_valley.apworld
+python scripts/fetch_upstream.py     # or seed .cache from a pinned local checkout
+python scripts/apply_patches.py
+python scripts/build_world.py        # -> artifacts/stardew_valley.apworld
 
 # swap into an AP 0.6.8 install (keep the original!), generate, restore
 #   lib/worlds/stardew_valley.apworld  <- artifacts/stardew_valley.apworld
@@ -75,12 +75,12 @@ Stardew Valley:
 
 ## Next
 
-Mod half of spike 02: build the patched mod with `scripts/build-mod.ps1`, drop it into the testbed,
+Mod half of spike 02: build the patched mod with `scripts/build_mod.py`, drop it into the testbed,
 connect to this generated seed, and read the SMAPI log for SVE Harmony binding failures.
 
 ## Mod half (partial)
 
-Built the patched mod against the testbed (`scripts/build-mod.ps1 -GamePath _testbed\sdv-sve`,
+Built the patched mod against the testbed (`scripts/build_mod.py --game-path _testbed/sdv-sve`,
 Debug, **0 errors / 41 warnings**, all analyzer noise) and launched it beside SVE 1.15.11:
 
 ```

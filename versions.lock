@@ -32,6 +32,9 @@
     "compatible_version": 7,
     "version": 7
   },
+  "release": {
+    "version": "0.1.0"
+  },
   "artifacts": {
     "apworld": "stardew_valley.apworld",
     "mod_dir": "StardewArchipelago"

@@ -35,7 +35,7 @@ integration, pinned, and owns the drift.
 
 | # | Bug | Fix |
 |---|---|---|
-| 1 | apworld built without `compatible_version`/`version` → registers as 0.0.0, `requires.game` rejects | `scripts/build-world.ps1` injects them from `versions.lock` |
+| 1 | apworld built without `compatible_version`/`version` → registers as 0.0.0, `requires.game` rejects | `scripts/build_world.py` injects them from `versions.lock` |
 | 2 | Packaging dropped subdirectories, then deleted the staged tree | robocopy; `-Filter` not `-Include` |
 | 3 | Patch files written UTF-16 by PowerShell redirection | regenerate with raw byte redirection |
 | 4 | World/mod version drift → "Please downgrade to a compatible mod version" | `world_version` stamped from the paired mod manifest |
@@ -59,7 +59,9 @@ integration, pinned, and owns the drift.
 versions.lock          pinned: SDV 1.6.15/24356, SMAPI 4.5.2, SVE 1.15.11, AP 0.6.8, mod commit
 patches/world/         diffs applied to Archipelago's worlds/stardew_valley
 patches/mod/           diffs applied to StardewArchipelago
-scripts/               fetch-upstream, apply-patches, build-world, build-mod (PowerShell 5.1)
+scripts/               fetch_upstream, apply_patches, build_world, build_mod, package_release, common (Python 3, stdlib only)
+tests/                 unit tests for the scripts (python -m pytest tests -q)
+.github/workflows/     ci.yml: fetch, patch, build apworld, Archipelago world tests on ubuntu/windows/macos
 docs/                  status, compatibility, spikes, census, identifier check, knowledge programme
 _analysis/             decompiled SVE + census JSON — GITIGNORED, never commit or redistribute
 ```
@@ -83,7 +85,7 @@ Current patches:
 - **SVE is gated, not deleted.** World: `options/options.py` → `disabled_mods` set. Mod:
   `Constants/Modded/ModVersions.cs` → the SVE row is commented out.
 - **Version pairing is mandatory.** The mod refuses a slot whose `client_version` differs from its own
-  `ModVersion`. `build-world.ps1` stamps `world_version` from the paired mod manifest; do not break
+  `ModVersion`. `build_world.py` stamps `world_version` from the paired mod manifest; do not break
   that coupling.
 - **The integration keys off SVE *data*, not SVE *code*.** Event ids, mail flags, item ids, NPC ids.
   SVE recompiles are harmless; SVE renumbering fails **silently**. See `docs/sve-identifier-check.md`.
@@ -176,15 +178,15 @@ See `docs/sve-knowledge-programme.md`. Phase 4 (decompile Witchybun's 1.14.31 bu
 
 ## 7. Build and test loop
 
-```powershell
+```sh
 # 1. sources (first time, or after changing versions.lock)
-./scripts/fetch-upstream.ps1
+python scripts/fetch_upstream.py
 
 # 2. apply the patch series onto the pinned checkouts in .cache/
-./scripts/apply-patches.ps1
+python scripts/apply_patches.py
 
 # 3. apworld  -> artifacts/stardew_valley.apworld (stamps world_version from the mod manifest)
-./scripts/build-world.ps1
+python scripts/build_world.py
 
 # 4. generate a seed with the patched world
 #    swap it into C:\ProgramData\Archipelago\lib\worlds\stardew_valley.apworld (KEEP THE ORIGINAL),
@@ -197,9 +199,12 @@ See `docs/sve-knowledge-programme.md`. Phase 4 (decompile Witchybun's 1.14.31 bu
 # 5. server
 & "C:\ProgramData\Archipelago\ArchipelagoServer.exe" --port 38282 --log_network --disable_save <seed.zip>
 
-# 6. mod  (CLOSE THE GAME FIRST — ModBuildConfig auto-deploys into the testbed Mods folder
-#          and locked DLLs make the build fail with "being used by another process")
-./scripts/build-mod.ps1 -GamePath "_testbed\sdv-sve" -Configuration Release
+# 6. mod  (close the game first: locked DLLs fail the build. build_mod.py passes EnableModDeploy=false and
+#          EnableModZip=false, so it no longer auto-deploys into a Mods folder; copy artifacts/ yourself)
+python scripts/build_mod.py --game-path "_testbed/sdv-sve"
+
+# 6b. release bundle -> artifacts/release/ (needs steps 3 and 6; fails on non-managed binaries)
+python scripts/package_release.py
 
 # 7. launch testbed, load save, read %APPDATA%\StardewValley\ErrorLogs\SMAPI-latest.txt
 ```
@@ -213,10 +218,9 @@ should be WARN 5 / ERROR 0 (the 5 are missing post-7.4.25 slot-data keys and are
 
 | Trap | Detail |
 |---|---|
-| `Copy-Item "dir\*"` | silently drops subdirectories. Use robocopy. |
-| `Get-ChildItem -Recurse -Include 'x'` | in PS 5.1 matches *everything*; a following `Remove-Item` deleted a staged world tree once. Use `-Filter`. |
-| Bracket paths | `[CP]`, `[FTM]` are wildcard character classes. Always `-LiteralPath`. |
+| Historical (PowerShell; scripts are Python now) | `Copy-Item "dir\*"` drops subdirectories; `-Recurse -Include` matches everything (deleted a staged tree once); `[CP]`/`[FTM]` need `-LiteralPath`. Still relevant if you shell out by hand. |
 | PowerShell `>` redirection | writes UTF-16; `git apply` then fails with "No valid patches in input". Redirect via `cmd /c`. |
+| `fetch_upstream.py` on a patched cache | when `.cache/<repo>` HEAD is not the pinned commit (e.g. local patch commits) it force-checks out the pinned commit, detaching HEAD and discarding applied patches. Recover with `git -C .cache/<repo> checkout main`. |
 | apworld manifest | AP's own build injects `compatible_version`/`version`; the repo's `archipelago.json` lacks them. |
 | `world_version` | must equal the mod's `ModVersion` or the client refuses the slot. |
 | Harmony `AccessTools` | returns null for a missing member and several call sites tolerate it — a renamed SVE member looks like a working patch. |
@@ -242,7 +246,7 @@ should be WARN 5 / ERROR 0 (the 5 are missing post-7.4.25 slot-data keys and are
 
 1. A seed generated with `mods: [Stardew Valley Expanded]` on the pinned AP tag, with SVE checks that
    report correctly over a 30-minute session.
-2. The mod builds from a clean checkout with `scripts/build-mod.ps1` and connects without warnings
+2. The mod builds from a clean checkout with `scripts/build_mod.py` and connects without warnings
    beyond the known five.
 3. `docs/compatibility.md` checklist passes end to end, and `versions.lock` is the only place versions
    appear.

@@ -18,7 +18,7 @@ Last updated: 2026-10-31, after the first end-to-end session on the SVE testbed.
 
 | # | Bug | Fix |
 |---|---|---|
-| 1 | World built without `compatible_version`/`version` → registers as 0.0.0, `requires.game` rejects it | `build-world.ps1` injects container fields from `versions.lock` |
+| 1 | World built without `compatible_version`/`version` → registers as 0.0.0, `requires.game` rejects it | `build_world.py` injects container fields from `versions.lock` |
 | 2 | Packaging dropped subdirectories / deleted the staged tree | robocopy instead of `Copy-Item "dir\*"`; `-Filter` instead of `-Include` |
 | 3 | Patch files written as UTF-16 by PowerShell redirection | regenerate with raw byte redirection |
 | 4 | World/mod version drift → "Please downgrade to a compatible mod version" | `world_version` stamped from the paired mod manifest |

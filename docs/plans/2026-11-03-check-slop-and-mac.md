@@ -29,7 +29,7 @@ Gap numbers come from a census of SVE 1.15.11 data against the pinned world (scr
 ### P1. Cross-platform tooling and CI (Windows + Mac)
 
 - Replace the four PowerShell 5.1 scripts with Python (`scripts/*.py`) that run on Windows, macOS
-  and Linux. Keep thin `.ps1` wrappers only if wanted.
+  and Linux. No `.ps1` wrappers are kept (done).
 - `build-mod` finds the game on both OSes (Steam default paths, plus `--game-path`), and uses
   `dotnet` on both.
 - Release packaging: one cross-platform zip (the mod is managed net6, no native parts; to be

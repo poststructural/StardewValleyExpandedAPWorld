@@ -34,25 +34,27 @@ versions.lock    the only place versions are allowed to be written down
 ```
 
 Not in this repo, by design: the game, SVE itself, SMAPI, Content Patcher, FTM, and any built
-`.apworld` or `.zip`. `scripts/fetch-upstream.ps1` pulls the pinned upstream commits; everything else
+`.apworld` or `.zip`. `scripts/fetch_upstream.py` pulls the pinned upstream commits; everything else
 comes from the player.
 
 ## Build
 
-```powershell
+```sh
 # 1. fetch the pinned upstream commits into .cache/
-./scripts/fetch-upstream.ps1
+python scripts/fetch_upstream.py
 
 # 2. apply the patch series
-./scripts/apply-patches.ps1
+python scripts/apply_patches.py
 
 # 3. produce artifacts/
-./scripts/build-world.ps1                                   # -> artifacts/stardew_valley.apworld
-./scripts/build-mod.ps1 -GamePath "D:\path\to\Stardew Valley" # -> artifacts/StardewArchipelago/
+python scripts/build_world.py                                   # -> artifacts/stardew_valley.apworld
+python scripts/build_mod.py --game-path "D:\path\to\Stardew Valley"  # -> artifacts/StardewArchipelago/
+                                                                 # (--game-path optional: Steam/GOG defaults on Windows, macOS, Linux)
+python scripts/package_release.py                                # -> artifacts/release/ (apworld, mod zip, SHA256SUMS.txt)
 ```
 
-`build-mod.ps1` needs a local Stardew Valley install (1.6.15 per `versions.lock`) because the mod
-compiles against the game's assemblies. `build-world.ps1` needs only Python.
+`build_mod.py` needs a local Stardew Valley install (1.6.15 per `versions.lock`) because the mod
+compiles against the game's assemblies. `build_world.py` needs only Python 3 (standard library). The scripts run the same on Windows, macOS and Linux; CI (`.github/workflows/ci.yml`) runs the world half on all three.
 
 ## Version policy
 
