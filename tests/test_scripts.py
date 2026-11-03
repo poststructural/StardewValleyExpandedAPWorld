@@ -137,3 +137,17 @@ def test_mod_zip_layout_with_cp(tmp_path):
             "Mods/[CP] Patch/content.json",
         }
     assert [n for _, n in package_release.collect_mod_dirs(mod, "StardewArchipelago", tmp_path / "nocp")] == ["StardewArchipelago"]
+
+
+def _version_tuple(v):
+    return tuple(int(x) for x in v.split("."))
+
+
+def test_built_apworld_loads_on_archipelago_0_6_8():
+    """Austin runs Archipelago 0.6.8: the built world must not demand a newer core."""
+    apworld = common.ROOT / "artifacts" / "stardew_valley.apworld"
+    if not apworld.exists():
+        pytest.skip("run scripts/build_world.py first")
+    manifest = json.loads(zipfile.ZipFile(apworld).read("stardew_valley/archipelago.json"))
+    assert _version_tuple(manifest.get("minimum_ap_version", "0.0.0")) <= (0, 6, 8)
+    assert _version_tuple(manifest["maximum_ap_version"]) >= (0, 6, 8)
