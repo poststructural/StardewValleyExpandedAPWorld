@@ -1,0 +1,307 @@
+diff --git a/StardewArchipelago/Coop/CoopMessages.cs b/StardewArchipelago/Coop/CoopMessages.cs
+new file mode 100644
+index 0000000..bc65ec4
+--- /dev/null
++++ b/StardewArchipelago/Coop/CoopMessages.cs
+@@ -0,0 +1,31 @@
++﻿using StardewArchipelago.Serialization;
++
++namespace StardewArchipelago.Coop
++{
++    // Mod-message shapes for the co-op join handshake. All travel with the mod's own UniqueID as source/filter.
++    public static class CoopMessageTypes
++    {
++        public const string HELLO = "ap.hello";     // farmhand -> host
++        public const string JOIN = "ap.join";       // host -> that farmhand
++        public const string REFUSE = "ap.refuse";   // host -> that farmhand
++    }
++
++    public class CoopHelloMessage
++    {
++        public string ModVersion { get; set; }
++    }
++
++    public class CoopJoinMessage
++    {
++        public string ModVersion { get; set; }
++        // Read-only copy of the host's state (connection info, checked locations, seasons order, letters...).
++        public ArchipelagoStateDto Snapshot { get; set; }
++    }
++
++    public class CoopRefuseMessage
++    {
++        public string Reason { get; set; }
++        // true: the host is not ready yet, the farmhand should ask again. false: do not retry (e.g. version mismatch).
++        public bool Retry { get; set; }
++    }
++}
+diff --git a/StardewArchipelago/ModEntry.Coop.cs b/StardewArchipelago/ModEntry.Coop.cs
+new file mode 100644
+index 0000000..1ed18ae
+--- /dev/null
++++ b/StardewArchipelago/ModEntry.Coop.cs
+@@ -0,0 +1,185 @@
++﻿using System;
++using System.Linq;
++using Microsoft.Xna.Framework;
++using Newtonsoft.Json;
++using StardewArchipelago.Locations.CodeInjections.Vanilla;
++using StardewArchipelago.Coop;
++using StardewArchipelago.Serialization;
++using StardewModdingAPI;
++using StardewModdingAPI.Events;
++using StardewValley;
++
++namespace StardewArchipelago
++{
++    // Co-op join handshake (phase C1). A farmhand cannot read SMAPI save data, so the host hands over the connection
++    // info and a read-only state snapshot over SMAPI mod messages, and the farmhand runs the normal connect path.
++    public partial class ModEntry
++    {
++        private const int HELLO_INTERVAL_TICKS = 300;
++
++        private bool _farmhandWaitingForHost;
++        private bool _farmhandJoined;
++        private int _farmhandTicks;
++
++        /// <summary>True only for a non-host player in a multiplayer game. Always false in single-player.</summary>
++        public static bool IsFarmhand => Context.IsMultiplayer && !Context.IsMainPlayer;
++
++        private void BeginFarmhandJoin()
++        {
++            _farmhandJoined = false;
++            _farmhandWaitingForHost = true;
++            _farmhandTicks = HELLO_INTERVAL_TICKS; // send the first hello on the next tick
++            State = new ArchipelagoStateDto();
++            _logger.Log("Joined a multiplayer farm as a farmhand; asking the host for the Archipelago connection info.", LogLevel.Info);
++        }
++
++        private void CoopUpdateTicked()
++        {
++            if (!_farmhandWaitingForHost || _farmhandJoined || !Context.IsWorldReady || !IsFarmhand)
++            {
++                return;
++            }
++
++            if (++_farmhandTicks < HELLO_INTERVAL_TICKS)
++            {
++                return;
++            }
++
++            _farmhandTicks = 0;
++            try
++            {
++                var hello = new CoopHelloMessage { ModVersion = ModManifest.Version.ToString() };
++                var host = Game1.MasterPlayer.UniqueMultiplayerID;
++                _helper.Multiplayer.SendMessage(hello, CoopMessageTypes.HELLO, new[] { ModManifest.UniqueID }, new[] { host });
++                _logger.Log("Sent Archipelago hello to the host.", LogLevel.Info);
++            }
++            catch (Exception ex)
++            {
++                _logger.Log($"Could not send hello to the host yet: {ex.Message}", LogLevel.Warn);
++            }
++        }
++
++        private void OnPeerConnected(object sender, PeerConnectedEventArgs e)
++        {
++            if (Context.IsMainPlayer && e.Peer.GetMod(ModManifest.UniqueID) == null)
++            {
++                _logger.Log($"Player {e.Peer.PlayerID} joined without the StardewArchipelago mod; they will play without Archipelago.", LogLevel.Warn);
++            }
++        }
++
++        private void OnModMessageReceived(object sender, ModMessageReceivedEventArgs e)
++        {
++            if (e.FromModID != ModManifest.UniqueID)
++            {
++                return;
++            }
++
++            try
++            {
++                switch (e.Type)
++                {
++                    case CoopMessageTypes.HELLO when Context.IsMainPlayer:
++                        HostHandleHello(e.FromPlayerID, e.ReadAs<CoopHelloMessage>());
++                        break;
++                    case CoopMessageTypes.JOIN when IsFarmhand:
++                        FarmhandHandleJoin(e.ReadAs<CoopJoinMessage>());
++                        break;
++                    case CoopMessageTypes.REFUSE when IsFarmhand:
++                        FarmhandHandleRefuse(e.ReadAs<CoopRefuseMessage>());
++                        break;
++                }
++            }
++            catch (Exception ex)
++            {
++                _logger.LogError($"Error handling co-op message '{e.Type}': {ex}");
++            }
++        }
++
++        private void HostHandleHello(long playerId, CoopHelloMessage hello)
++        {
++            var ourVersion = ModManifest.Version.ToString();
++            if (hello?.ModVersion != ourVersion)
++            {
++                _logger.Log($"Player {playerId} has StardewArchipelago {hello?.ModVersion}, the host has {ourVersion}. Refusing.", LogLevel.Warn);
++                SendRefuse(playerId, $"Your StardewArchipelago version ({hello?.ModVersion}) does not match the host's ({ourVersion}). Install the same version.", false);
++                return;
++            }
++
++            if (!_archipelago.IsConnected || _itemManager == null || State?.APConnectionInfo == null)
++            {
++                SendRefuse(playerId, "The host is not connected to Archipelago yet.", true);
++                return;
++            }
++
++            var join = new CoopJoinMessage { ModVersion = ourVersion, Snapshot = CreateStateSnapshot() };
++            _helper.Multiplayer.SendMessage(join, CoopMessageTypes.JOIN, new[] { ModManifest.UniqueID }, new[] { playerId });
++            _logger.Log($"Sent the Archipelago connection info and state snapshot to player {playerId}.", LogLevel.Info);
++        }
++
++        private void SendRefuse(long playerId, string reason, bool retry)
++        {
++            var refuse = new CoopRefuseMessage { Reason = reason, Retry = retry };
++            _helper.Multiplayer.SendMessage(refuse, CoopMessageTypes.REFUSE, new[] { ModManifest.UniqueID }, new[] { playerId });
++        }
++
++        // A copy of the host state with the live values the host normally only writes on save. Does not touch the host's State.
++        private ArchipelagoStateDto CreateStateSnapshot()
++        {
++            var snapshot = JsonConvert.DeserializeObject<ArchipelagoStateDto>(JsonConvert.SerializeObject(State));
++            snapshot.ItemsReceived = _itemManager.GetAllItemsAlreadyProcessed();
++            snapshot.LocationsChecked = _locationChecker.GetAllLocationsAlreadyChecked();
++            snapshot.JojaLocationsChecked = _jojaLocationChecker.GetAllLocationsCheckedByJoja();
++            snapshot.LocationsScouted = _archipelago.ScoutedLocations;
++            snapshot.LocationsScoutHinted = _archipelago.ScoutHintedLocations.ToList();
++            return snapshot;
++        }
++
++        private void FarmhandHandleRefuse(CoopRefuseMessage refuse)
++        {
++            if (_farmhandJoined)
++            {
++                return;
++            }
++
++            _logger.Log($"The host refused the Archipelago join: {refuse.Reason}", refuse.Retry ? LogLevel.Warn : LogLevel.Error);
++            if (!refuse.Retry)
++            {
++                _farmhandWaitingForHost = false;
++                Game1.chatBox?.addMessage($"Archipelago: {refuse.Reason}", Color.Red);
++            }
++        }
++
++        private void FarmhandHandleJoin(CoopJoinMessage join)
++        {
++            if (_farmhandJoined || join?.Snapshot?.APConnectionInfo == null)
++            {
++                return;
++            }
++
++            _farmhandJoined = true;
++            _farmhandWaitingForHost = false;
++            try
++            {
++                // Held in memory only. A farmhand never reads or writes SMAPI save data (per-farmer persistence is Farmer.modData, phase C2).
++                State = join.Snapshot;
++                _archipelago.ScoutedLocations = State.LocationsScouted;
++                _archipelago.ScoutHintedLocations = State.LocationsScoutHinted.ToHashSet();
++                SkillInjections.SetArchipelagoExperience(null);
++                Locations.CodeInjections.Vanilla.Relationship.FriendshipInjections.SetArchipelagoFriendshipPoints(null);
++
++                if (!AttemptConnectionToArchipelago().Success)
++                {
++                    return;
++                }
++
++                InitializeAfterConnection();
++                _logger.Log("Farmhand connected to Archipelago via the host's connection info.", LogLevel.Info);
++            }
++            catch (Exception)
++            {
++                Game1.chatBox?.addMessage($"A Fatal error has occurred while initializing Archipelago. Check SMAPI for details to report the problem", Color.Red);
++                throw;
++            }
++        }
++    }
++}
+diff --git a/StardewArchipelago/ModEntry.cs b/StardewArchipelago/ModEntry.cs
+index 63b2063..538aca8 100644
+--- a/StardewArchipelago/ModEntry.cs
++++ b/StardewArchipelago/ModEntry.cs
+@@ -48,7 +48,7 @@ using StardewValley;
+ 
+ namespace StardewArchipelago
+ {
+-    public class ModEntry : Mod
++    public partial class ModEntry : Mod
+     {
+         public static ModEntry Instance;
+         public ModConfig Config;
+@@ -139,6 +139,8 @@ namespace StardewArchipelago
+             _helper.Events.GameLoop.DayEnding += OnDayEnding;
+             _helper.Events.GameLoop.ReturnedToTitle += OnReturnedToTitle;
+             _helper.Events.Input.ButtonsChanged += this.OnButtonChanged;
++            _helper.Events.Multiplayer.ModMessageReceived += OnModMessageReceived;
++            _helper.Events.Multiplayer.PeerConnected += OnPeerConnected;
+ 
+             _registry.RegisterOnModEntry();
+ 
+@@ -220,6 +222,11 @@ namespace StardewArchipelago
+ 
+         private void OnSaving(object sender, SavingEventArgs e)
+         {
++            if (IsFarmhand)
++            {
++                return; // farmhands never touch SMAPI save data
++            }
++
+             _saveCleaner.OnSaving(sender, e);
+ 
+             SeasonsRandomizer.PrepareDateForSaveGame();
+@@ -262,6 +269,12 @@ namespace StardewArchipelago
+         {
+             try
+             {
++                if (IsFarmhand)
++                {
++                    BeginFarmhandJoin();
++                    return;
++                }
++
+                 ReadPersistentArchipelagoData();
+ 
+                 if (!AttemptConnectionToArchipelago().Success)
+@@ -461,6 +474,11 @@ namespace StardewArchipelago
+         [EventPriority((EventPriority)((int)EventPriority.Low * 10))]
+         private void OnDayStarted(object sender, DayStartedEventArgs e)
+         {
++            if (IsFarmhand && _itemManager == null)
++            {
++                return; // not joined yet
++            }
++
+             DoArchipelagoNewDayProcesses();
+ 
+             if (MultiSleepManager.TryDoMultiSleepOnDayStarted())
+@@ -532,6 +550,11 @@ namespace StardewArchipelago
+ 
+         private void OnDayEnding(object sender, DayEndingEventArgs e)
+         {
++            if (IsFarmhand && _itemManager == null)
++            {
++                return; // not joined yet
++            }
++
+             _giftHandler.ReceiveAllGiftsTomorrow();
+             _villagerEvents.CheckJunaHearts(_archipelago);
+             _shippingBehaviors?.CheckShipsanityLocationsBeforeSleep();
+@@ -547,6 +570,7 @@ namespace StardewArchipelago
+         private void OnUpdateTicked(object sender, UpdateTickedEventArgs e)
+         {
+             _archipelago.APUpdate();
++            CoopUpdateTicked();
+ 
+             // _helper.GameContent.InvalidateCache("Data/Shops");
+ 

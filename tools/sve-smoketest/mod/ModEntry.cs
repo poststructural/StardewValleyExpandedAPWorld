@@ -10,7 +10,9 @@ using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
 using StardewValley.Locations;
+using StardewValley.Buildings;
 using StardewValley.Menus;
+using StardewValley.Network;
 using StardewValley.SpecialOrders;
 
 namespace APSmokeTest
@@ -22,6 +24,9 @@ namespace APSmokeTest
         public string FarmName { get; set; } = "APSmoke";
         public string ResultPath { get; set; }
         public string FlagDir { get; set; }
+        /// <summary>single (default), host (create save with a cabin, open to LAN co-op) or farmhand (join the host over LAN).</summary>
+        public string Role { get; set; } = "single";
+        public string JoinAddress { get; set; } = "127.0.0.1";
     }
 
     public class PathResult
@@ -36,7 +41,7 @@ namespace APSmokeTest
     public class ModEntry : Mod
     {
         private SmokeConfig _cfg;
-        private enum Stage { Title, Creating, WaitWorld, Actions, WaitProceed, Sleeping, Day2, Done }
+        private enum Stage { Title, Creating, WaitWorld, Actions, WaitProceed, Sleeping, Day2, Done, HostOpen, HostWait, FhJoin, FhPick, FhWaitWorld, FhWaitFire, FhWaitFinish }
         private Stage _stage = Stage.Title;
         private int _tick, _stageTick, _actionIndex;
         private readonly List<PathResult> _results = new();
@@ -45,7 +50,8 @@ namespace APSmokeTest
 
         public override void Entry(IModHelper helper)
         {
-            _cfg = helper.Data.ReadJsonFile<SmokeConfig>("smoke.json") ?? throw new Exception("smoke.json missing");
+            var envPath = Environment.GetEnvironmentVariable("APSMOKE_CONFIG"); // lets two instances of one install use different configs
+            _cfg = (!string.IsNullOrEmpty(envPath) ? JsonConvert.DeserializeObject<SmokeConfig>(File.ReadAllText(envPath)) : helper.Data.ReadJsonFile<SmokeConfig>("smoke.json")) ?? throw new Exception("smoke.json missing");
             helper.Events.GameLoop.UpdateTicked += OnTick;
             helper.Events.GameLoop.DayStarted += (_, _) => Monitor.Log($"[APSmoke] DayStarted day={Game1.dayOfMonth}", LogLevel.Info);
             helper.Events.GameLoop.DayEnding += (_, _) => Monitor.Log("[APSmoke] DayEnding", LogLevel.Info);
@@ -69,6 +75,13 @@ namespace APSmokeTest
                     case Stage.WaitProceed: DoWaitProceed(); break;
                     case Stage.Sleeping: DoSleeping(); break;
                     case Stage.Day2: DoDay2(); break;
+                    case Stage.HostOpen: DoHostOpen(); break;
+                    case Stage.HostWait: DoHostWait(); break;
+                    case Stage.FhJoin: DoFhJoin(); break;
+                    case Stage.FhPick: DoFhPick(); break;
+                    case Stage.FhWaitWorld: DoFhWaitWorld(); break;
+                    case Stage.FhWaitFire: DoFhWaitFire(); break;
+                    case Stage.FhWaitFinish: DoFhWaitFinish(); break;
                 }
             }
             catch (Exception ex)
@@ -85,6 +98,8 @@ namespace APSmokeTest
         private void DoTitle()
         {
             if (Game1.activeClickableMenu is not TitleMenu || TitleMenu.subMenu != null || _tick < 360) return;
+            if (_cfg.Role == "farmhand") { SetStage(Stage.FhJoin); return; }
+            if (_cfg.Role == "host") Game1.startingCabins = 1; // one open cabin for the farmhand
             Say("opening new-game menu");
             TitleMenu.subMenu = new CharacterCustomization(CharacterCustomization.Source.NewGame);
             SetStage(Stage.Creating);
@@ -134,6 +149,7 @@ namespace APSmokeTest
             Say($"world ready: save={Constants.SaveFolderName} day={Game1.dayOfMonth} loc={Game1.player.currentLocation?.Name}");
             _extra["saveFolder"] = Constants.SaveFolderName;
             if (!Constants.SaveFolderName.StartsWith("APSmoke")) throw new Exception("refusing to run in a non-APSmoke save: " + Constants.SaveFolderName);
+            if (_cfg.Role == "host") { SetStage(Stage.HostOpen); return; }
             BuildActions();
             SetStage(Stage.Actions);
         }
@@ -314,6 +330,81 @@ namespace APSmokeTest
             WriteResults(true);
             SetStage(Stage.Done);
             Game1.quit = true;
+        }
+
+        // ---------------------------------------------------------------- co-op: host
+        private void Flag(string name) { File.WriteAllText(Path.Combine(_cfg.FlagDir, name), "1"); Say("flag " + name); }
+        private bool HasFlag(string name) => File.Exists(Path.Combine(_cfg.FlagDir, name));
+
+        private void DoHostOpen()
+        {
+            if (_stageTick < 120) return;
+            var farm = Game1.getFarm();
+            var cabin = farm.buildings.Select(b => b.indoors.Value).OfType<Cabin>().FirstOrDefault() ?? throw new Exception("no cabin on the farm (startingCabins did not apply)");
+            var fh = cabin.owner;
+            fh.isCustomized.Value = true;   // skip the farmhand character creator
+            fh.Name = "Hand";
+            fh.farmName.Value = _cfg.FarmName;
+            fh.favoriteThing.Value = "Tests";
+            Say($"cabin ready for farmhand '{fh.Name}'; opening to LAN co-op (multiplayerMode=2)");
+            Game1.multiplayerMode = 2;      // the game starts the LAN server itself on the next update (options.enableServer)
+            SetStage(Stage.HostWait);
+        }
+
+        private void DoHostWait()
+        {
+            if (_stageTick % 60 == 0 && Game1.activeClickableMenu != null && Game1.activeClickableMenu is not ShippingMenu) Game1.activeClickableMenu.exitThisMenu(false);
+            if (Game1.server != null && !HasFlag("host.ready.flag") && _stageTick > 120) Flag("host.ready.flag");
+            if (Game1.otherFarmers.Count > 0 && !HasFlag("peer.joined.flag")) { Say("farmhand connected: " + string.Join(",", Game1.otherFarmers.Values.Select(f => f.Name))); Flag("peer.joined.flag"); }
+            if (HasFlag("finish.flag")) { WriteResults(true); SetStage(Stage.Done); Game1.quit = true; }
+            if (_stageTick > 60 * 900) throw new Exception("host timed out waiting for finish.flag");
+        }
+
+        // ---------------------------------------------------------------- co-op: farmhand
+        private void DoFhJoin()
+        {
+            Say("joining " + _cfg.JoinAddress + " over LAN");
+            TitleMenu.subMenu = new FarmhandMenu(Helper.Reflection.GetField<Multiplayer>(typeof(Game1), "multiplayer").GetValue().InitClient(new LidgrenClient(_cfg.JoinAddress)));
+            SetStage(Stage.FhPick);
+        }
+
+        private void DoFhPick()
+        {
+            if (TitleMenu.subMenu is not FarmhandMenu fm) { if (_stageTick > 120) throw new Exception("farmhand menu vanished: " + TitleMenu.subMenu?.GetType().Name); return; }
+            if (_stageTick > 60 * 90) throw new Exception("no farmhand slot appeared");
+            var slot = fm.MenuSlots.OfType<FarmhandMenu.FarmhandSlot>().FirstOrDefault(sl => !sl.BelongsToAnotherPlayer());
+            if (slot == null) return;
+            Say("activating farmhand slot " + slot.Farmer.Name);
+            slot.Activate();
+            SetStage(Stage.FhWaitWorld);
+        }
+
+        private void DoFhWaitWorld()
+        {
+            if (_stageTick > 60 * 120) throw new Exception("farmhand world never became ready");
+            if (Game1.activeClickableMenu is CharacterCustomization) throw new Exception("farmhand got the character creator (cabin not pre-customized)");
+            if (!Context.IsWorldReady) return;
+            if (Game1.activeClickableMenu != null && _stageTick % 60 == 0) Game1.activeClickableMenu.exitThisMenu(false);
+            if (_stageTick < 300) return;
+            Say($"farmhand world ready: IsMainPlayer={Context.IsMainPlayer} IsMultiplayer={Context.IsMultiplayer} player={Game1.player.Name}");
+            Flag("farmhand.ready.flag");
+            SetStage(Stage.FhWaitFire);
+        }
+
+        private void DoFhWaitFire()
+        {
+            if (!HasFlag("fire.flag")) { if (_stageTick > 60 * 300) throw new Exception("farmhand timed out waiting for fire.flag"); return; }
+            var gar = IdByName("Gar");
+            var ok = Game1.player.caughtFish("(O)" + gar, 20);
+            Say($"farmhand fired Farmer.caughtFish gar={gar} -> {ok} (expects 'Fishsanity: Gar')");
+            Flag("fired.flag");
+            SetStage(Stage.FhWaitFinish);
+        }
+
+        private void DoFhWaitFinish()
+        {
+            if (HasFlag("finish.flag")) { SetStage(Stage.Done); Game1.quit = true; }
+            if (_stageTick > 60 * 300) throw new Exception("farmhand timed out waiting for finish.flag");
         }
 
         private void WriteResults(bool final)
