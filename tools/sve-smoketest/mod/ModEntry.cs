@@ -29,6 +29,8 @@ namespace APSmokeTest
         public string JoinAddress { get; set; } = "127.0.0.1";
         /// <summary>Role host: load this existing APSmoke save as a co-op host instead of creating a new farm.</summary>
         public string LoadSave { get; set; }
+        /// <summary>Role farmhand: the cabin farmer to join as (the host pre-customizes "Hand" and "Late").</summary>
+        public string FarmerName { get; set; } = "Hand";
     }
 
     public class PathResult
@@ -368,15 +370,41 @@ namespace APSmokeTest
             if (_stageTick < 120) return;
             var farm = Game1.getFarm();
             var cabin = farm.buildings.Select(b => b.indoors.Value).OfType<Cabin>().FirstOrDefault() ?? throw new Exception("no cabin on the farm (the Host New Farm menu's cabins did not apply)");
-            var fh = cabin.owner;
-            fh.isCustomized.Value = true;   // skip the farmhand character creator
-            fh.Name = "Hand";
-            fh.farmName.Value = _cfg.FarmName;
-            fh.favoriteThing.Value = "Tests";
+            Customize(cabin.owner, "Hand");
+            // A second cabin whose farmer first joins on a later day (late-joiner test).
+            Building late = null;
+            var first = farm.buildings.First(b => b.indoors.Value is Cabin);
+            foreach (var dx in new[] { 7, -7, 14, -14 })
+            {
+                var spot = new Vector2(first.tileX.Value + dx, first.tileY.Value);
+                for (var x = 0; x < first.tilesWide.Value; x++)          // clear debris in the footprint, then place without the safety checks
+                    for (var y = 0; y < first.tilesHigh.Value; y++)
+                    {
+                        var t = spot + new Vector2(x, y);
+                        farm.objects.Remove(t); farm.terrainFeatures.Remove(t);
+                        farm.resourceClumps.RemoveWhere(rc => rc.occupiesTile((int)t.X, (int)t.Y));
+                    }
+                if (farm.buildings.Any(b => Enumerable.Range(-1, first.tilesWide.Value + 2).Any(x => Enumerable.Range(-1, first.tilesHigh.Value + 2).Any(y => b.occupiesTile(spot + new Vector2(x, y)))))) continue;
+                if (farm.buildStructure("Cabin", spot, Game1.player, out var built, magicalConstruction: true, skipSafetyChecks: true)) { late = built; break; }
+            }
+            if (late == null) throw new Exception("could not place a second cabin next to " + first.tileX.Value + "," + first.tileY.Value);
+            late.daysOfConstructionLeft.Value = 0;
+            var lateCabin = late.GetIndoors() as Cabin ?? throw new Exception("second cabin has no Cabin interior");
+            if (lateCabin.owner == null) lateCabin.CreateFarmhand();
+            Customize(lateCabin.owner, "Late");
+            Say($"second cabin at {late.tileX.Value},{late.tileY.Value} for farmhand 'Late'");
             _extra["cabins"] = farm.buildings.Count(b => b.indoors.Value is Cabin);
-            Say($"cabin ready for farmhand '{fh.Name}' (multiplayerMode={Game1.multiplayerMode}, cabins={_extra["cabins"]})");
+            Say($"cabins ready for farmhands 'Hand' and 'Late' (multiplayerMode={Game1.multiplayerMode}, cabins={_extra["cabins"]})");
             Game1.multiplayerMode = 2;      // already 2 from the Host New Farm menu; the game starts the LAN server itself
             SetStage(Stage.HostWait);
+        }
+
+        private void Customize(Farmer fh, string name)
+        {
+            fh.isCustomized.Value = true;   // skip the farmhand character creator
+            fh.Name = name;
+            fh.farmName.Value = _cfg.FarmName;
+            fh.favoriteThing.Value = "Tests";
         }
 
         private void DoHostWait()
@@ -399,7 +427,7 @@ namespace APSmokeTest
             if (TitleMenu.subMenu is not FarmhandMenu fm) { if (_stageTick > 120) throw new Exception("farmhand menu vanished: " + TitleMenu.subMenu?.GetType().Name); return; }
             if (_stageTick > 60 * 90) throw new Exception("no farmhand slot appeared");
             var slots = fm.MenuSlots.OfType<FarmhandMenu.FarmhandSlot>().Where(sl => !sl.BelongsToAnotherPlayer()).ToList();
-            var slot = slots.FirstOrDefault(sl => sl.Farmer.Name == "Hand") ?? slots.FirstOrDefault();
+            var slot = slots.FirstOrDefault(sl => sl.Farmer.Name == _cfg.FarmerName);
             if (slot == null) return;
             Say("activating farmhand slot " + slot.Farmer.Name);
             slot.Activate();
@@ -420,8 +448,8 @@ namespace APSmokeTest
 
         // ---------------------------------------------------------------- co-op: scripted steps (both roles)
         // The harness writes step.json {"N":n,"Action":"..","Tag":".."}; each game runs it once and writes <role>.done.<n>.
-        private class Step { public int N { get; set; } public string Action { get; set; } public string Tag { get; set; } }
-        private int _lastStep;
+        private class Step { public int N { get; set; } public string Action { get; set; } public string Tag { get; set; } public string Who { get; set; } }
+        private int _lastStep = -1;
         private Step _step;
         private int _stepTick;
 
@@ -431,10 +459,16 @@ namespace APSmokeTest
             if (_step == null)
             {
                 var path = Path.Combine(_cfg.FlagDir, "step.json");
+                if (_lastStep < 0)                   // first tick in Script: a step already on disk was meant for the games before this one
+                {
+                    try { _lastStep = File.Exists(path) ? JsonConvert.DeserializeObject<Step>(File.ReadAllText(path))?.N ?? 0 : 0; } catch { return; }
+                    Say("script ready after step " + _lastStep);
+                }
                 if (_tick % 30 != 0 || !File.Exists(path)) return;
                 Step s;
                 try { s = JsonConvert.DeserializeObject<Step>(File.ReadAllText(path)); } catch { return; }
                 if (s == null || s.N <= _lastStep) return;
+                if (!string.IsNullOrEmpty(s.Who) && s.Who != _cfg.Role) { _lastStep = s.N; return; }
                 _step = s; _stepTick = 0;
                 Say($"step {s.N}: {s.Action} {s.Tag}");
             }
@@ -446,6 +480,8 @@ namespace APSmokeTest
                 "mail" => StepMail(),
                 "sleep" => StepSleep(),
                 "fire" => StepFire(),
+                "earn" => StepEarn(),
+                "stash" => StepStash(),
                 "quit" => StepQuit(),
                 _ => throw new Exception("unknown step " + _step.Action),
             };
@@ -489,10 +525,77 @@ namespace APSmokeTest
                 buildings = farm.buildings.Select(b => b.buildingType.Value).OrderBy(x => x).ToList(),
                 pets = Game1.locations.Sum(l => l.characters.OfType<StardewValley.Characters.Pet>().Count()) + farm.buildings.Where(b => b.indoors.Value != null).Sum(b => b.indoors.Value.characters.OfType<StardewValley.Characters.Pet>().Count()),
                 farmers = Game1.getOnlineFarmers().Select(f => f.Name).ToList(),
+                giftBoxes = Game1.getLocationFromName("FarmHouse").Objects.Pairs.Where(kv => kv.Value is StardewValley.Objects.Chest ch && ch.giftbox.Value).Select(kv => $"{kv.Key.X},{kv.Key.Y}").OrderBy(x => x).ToList(),
+                inventoryTools = p.Items.OfType<Tool>().Select(t => $"{t.BaseName}:{t.UpgradeLevel}").OrderBy(x => x).ToList(),
+                ownTools = OwnTools(p),
+                chestTools = ChestTools().Select(x => $"{x.loc}:{x.tool.BaseName}:{x.tool.UpgradeLevel}:{(x.tool.modData.TryGetValue(OwnerKey, out var o) ? o : "-")}").OrderBy(x => x).ToList(),
+                restrictionsApplied = p.modData.ContainsKey("KaitoKid.StardewArchipelago/StartingRestrictionsApplied"),
+                modDataApXp = p.modData.TryGetValue("KaitoKid.StardewArchipelago/ApExperience", out var mx) ? mx : null,
             };
             File.WriteAllText(Path.Combine(_cfg.FlagDir, $"{_cfg.Role}.snap.{tag}.json"), JsonConvert.SerializeObject(snap, Formatting.Indented));
             Say("snapshot " + tag + ": " + JsonConvert.SerializeObject(snap));
             return true;
+        }
+
+        private const string OwnerKey = "KaitoKid.StardewArchipelago/ToolOwner";
+
+        private static IEnumerable<(string loc, Tool tool)> ChestTools()
+        {
+            var locations = Game1.locations.Concat(Game1.getFarm().buildings.Select(b => b.indoors.Value).Where(l => l != null));
+            foreach (var l in locations)
+                foreach (var o in l.Objects.Values.OfType<StardewValley.Objects.Chest>())
+                    foreach (var t in o.Items.OfType<Tool>())
+                        yield return (l.NameOrUniqueName, t);
+        }
+
+        /// <summary>The tools a farmer has: its inventory plus chest tools tagged with its id.</summary>
+        private static List<string> OwnTools(Farmer p)
+        {
+            var id = p.UniqueMultiplayerID.ToString();
+            return p.Items.OfType<Tool>().Concat(ChestTools().Select(x => x.tool).Where(t => t.modData.TryGetValue(OwnerKey, out var o) && o == id))
+                .Select(t => $"{t.BaseName}:{t.UpgradeLevel}").OrderBy(x => x).ToList();
+        }
+
+        // Host: earn money and claim one starter gift box after the farmhand first joined (a farmhand rejoin must not undo either).
+        private bool StepEarn()
+        {
+            if (_cfg.Role != "host") return true;
+            Game1.player.Money += 777;
+            var house = Game1.getLocationFromName("FarmHouse");
+            var box = house.Objects.Pairs.FirstOrDefault(kv => kv.Value is StardewValley.Objects.Chest ch && ch.giftbox.Value);
+            if (box.Value == null) throw new Exception("no starter gift box to claim");
+            house.Objects.Remove(box.Key);
+            Say($"earned 777 (money {Game1.player.Money}) and claimed the gift box at {box.Key}");
+            return true;
+        }
+
+        // Each game puts its axe into a new chest on the farm, the shared location both farmers can open.
+        private bool _stashed;
+        private int _stashTick;
+        private bool StepStash()
+        {
+            var p = Game1.player;
+            if (_stashed)
+            {
+                if (_stepTick == _stashTick + 60) { var home = Utility.getHomeOfFarmer(p); var bed = home.GetPlayerBedSpot(); Game1.warpFarmer(home.NameOrUniqueName, bed.X, bed.Y, false); Say("back home after stashing"); }
+                if (_stepTick < _stashTick + 600 || p.currentLocation?.NameOrUniqueName != Utility.getHomeOfFarmer(p).NameOrUniqueName) return false;
+                _stashed = false;
+                return true;
+            }
+            // A farmhand's edits only sync for the location it is in, so walk onto the farm first.
+            if (_stepTick == 1 && p.currentLocation?.Name != "Farm") { Game1.warpFarmer("Farm", 64, 18, false); Say("warping to the farm to stash"); }
+            if (_stepTick < 180 || p.currentLocation?.Name != "Farm" || Game1.fadeToBlack) { if (_stepTick > 60 * 60) throw new Exception("never reached the farm"); return false; }
+            var axe = p.Items.OfType<Tool>().FirstOrDefault(t => t.BaseName.Contains("Axe") && !t.BaseName.Contains("Pickaxe")) ?? throw new Exception("no axe in inventory to stash");
+            var farm = Game1.getFarm();
+            var tile = new Vector2(60, _cfg.Role == "host" ? 15 : 19);   // separate rows: both games place at the same moment
+            while (farm.Objects.ContainsKey(tile) || !farm.CanItemBePlacedHere(tile)) tile.X += 1;
+            var chest = new StardewValley.Objects.Chest(true, tile);
+            chest.Items.Add(axe);
+            p.removeItemFromInventory(axe);
+            farm.Objects.Add(tile, chest);
+            Say($"stashed {axe.BaseName}:{axe.UpgradeLevel} owner={(axe.modData.TryGetValue(OwnerKey, out var o) ? o : "-")} in a farm chest at {tile}");
+            _stashed = true; _stashTick = _stepTick;
+            return false;
         }
 
         private bool StepPrep()

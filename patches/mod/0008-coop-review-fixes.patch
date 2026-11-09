@@ -1,0 +1,276 @@
+diff --git a/StardewArchipelago/Coop/ItemScopes.cs b/StardewArchipelago/Coop/ItemScopes.cs
+index 0ce7b20..2606720 100644
+--- a/StardewArchipelago/Coop/ItemScopes.cs
++++ b/StardewArchipelago/Coop/ItemScopes.cs
+@@ -79,6 +79,10 @@ namespace StardewArchipelago.Coop
+         public const string ITEMS_APPLIED_KEY = PREFIX + "ItemsAppliedUpTo";
+         public const string AP_EXPERIENCE_KEY = PREFIX + "ApExperience";
+         public const string AP_FRIENDSHIP_KEY = PREFIX + "ApFriendship";
++        /// <summary>Set once the farmer's StartWithout restrictions (tools, backpack) were applied, so a farmhand gets them exactly once, on whatever day it first joins.</summary>
++        public const string STARTING_RESTRICTIONS_KEY = PREFIX + "StartingRestrictionsApplied";
++        /// <summary>On a tool: the UniqueMultiplayerID of the farmer it belongs to (multiplayer only).</summary>
++        public const string TOOL_OWNER_KEY = PREFIX + "ToolOwner";
+ 
+         /// <summary>Index of the first received item this farmer has not applied yet (items 0..N-1 are applied).</summary>
+         public static int GetItemsAppliedUpTo(Farmer farmer)
+@@ -98,7 +102,31 @@ namespace StardewArchipelago.Coop
+ 
+         public static void Write<T>(Farmer farmer, string key, T value)
+         {
+-            farmer.modData[key] = JsonConvert.SerializeObject(value);
++            var json = JsonConvert.SerializeObject(value);
++            if (!farmer.modData.TryGetValue(key, out var current) || current != json)
++            {
++                farmer.modData[key] = json; // only on change: this runs every second on a farmhand, and modData syncs to the host
++            }
++        }
++
++        /// <summary>Marks every untagged tool in the local farmer's inventory as theirs. Tags are never moved to another farmer.</summary>
++        public static void TagLocalPlayerTools()
++        {
++            var owner = Game1.player.UniqueMultiplayerID.ToString();
++            foreach (var item in Game1.player.Items)
++            {
++                if (item is Tool tool && !tool.modData.ContainsKey(TOOL_OWNER_KEY))
++                {
++                    tool.modData[TOOL_OWNER_KEY] = owner;
++                }
++            }
++        }
++
++        public static bool HasToolOwner(Item item) => item != null && item.modData.ContainsKey(TOOL_OWNER_KEY);
++
++        public static bool IsToolOwnedBy(Item item, Farmer farmer)
++        {
++            return item != null && item.modData.TryGetValue(TOOL_OWNER_KEY, out var owner) && owner == farmer.UniqueMultiplayerID.ToString();
+         }
+     }
+ 
+diff --git a/StardewArchipelago/GameModifications/StartingResources.cs b/StardewArchipelago/GameModifications/StartingResources.cs
+index b033fbe..4b1e7d4 100644
+--- a/StardewArchipelago/GameModifications/StartingResources.cs
++++ b/StardewArchipelago/GameModifications/StartingResources.cs
+@@ -3,6 +3,7 @@ using KaitoKid.Utilities.Interfaces;
+ using Microsoft.Xna.Framework;
+ using StardewArchipelago.Archipelago;
+ using StardewArchipelago.Archipelago.SlotData.SlotEnums;
++using StardewArchipelago.Coop;
+ using StardewArchipelago.Extensions;
+ using StardewArchipelago.GameModifications.CodeInjections;
+ using StardewArchipelago.Locations;
+@@ -36,6 +37,16 @@ namespace StardewArchipelago.GameModifications
+         public void GivePlayerStartingResources()
+         {
+             _logger.LogDebug($"Starting {nameof(GivePlayerStartingResources)} (Game1.Date.TotalDays: {Game1.Date.TotalDays})");
++            if (CoopContext.IsFarmhand)
++            {
++                // Money, the starter gift boxes and the farm buildings are team state: only the host sets them up. The farmhand
++                // only gets its own restrictions (once, on whatever day it first joins), its letter and its quest.
++                ApplyFarmhandStartingRestrictionsOnce();
++                SendGilTelephoneLetter();
++                GrantStartingQuest();
++                return;
++            }
++
+             GivePlayerStartingMoney();
+             if (Game1.Date.TotalDays == 0)
+             {
+@@ -52,6 +63,20 @@ namespace StardewArchipelago.GameModifications
+             GrantStartingQuest();
+         }
+ 
++        private void ApplyFarmhandStartingRestrictionsOnce()
++        {
++            var farmer = Game1.player;
++            if (farmer.modData.ContainsKey(FarmerCoopData.STARTING_RESTRICTIONS_KEY))
++            {
++                return;
++            }
++
++            _logger.LogInfo($"[coop] First join of farmhand {farmer.Name} (day {Game1.Date.TotalDays}): applying its starting tool and backpack restrictions.");
++            RemoveStartingTools();
++            RemoveStartingBackpack();
++            farmer.modData[FarmerCoopData.STARTING_RESTRICTIONS_KEY] = "1";
++        }
++
+         private void GivePlayerStartingMoney()
+         {
+             var startingMoney = _archipelago.SlotData.StartingMoney;
+@@ -149,6 +174,10 @@ namespace StardewArchipelago.GameModifications
+                 Game1.player.MaxItems = 0;
+                 var farmhouse = Game1.getLocationFromName("FarmHouse") as FarmHouse;
+                 var (location, originalTile) = GetGiftboxPlacement(farmhouse);
++                if (CoopContext.IsFarmhand)
++                {
++                    (location, originalTile) = (Utility.getHomeOfFarmer(Game1.player), new Vector2(3f, 7f)); // a farmhand's overflow goes to its own cabin
++                }
+                 while (Game1.player.Items.Count > Game1.player.MaxItems)
+                 {
+                     var item = Game1.player.Items[0];
+diff --git a/StardewArchipelago/Items/ToolUpgrader.cs b/StardewArchipelago/Items/ToolUpgrader.cs
+index de31601..e64bdfb 100644
+--- a/StardewArchipelago/Items/ToolUpgrader.cs
++++ b/StardewArchipelago/Items/ToolUpgrader.cs
+@@ -1,5 +1,7 @@
+ ﻿using System.Collections.Generic;
+ using System.Linq;
++using System;
++using StardewArchipelago.Coop;
+ using StardewValley;
+ using StardewValley.Locations;
+ using StardewValley.Objects;
+@@ -17,6 +19,13 @@ namespace StardewArchipelago.Items
+                 return upgradedTool;
+             }
+ 
++            if (CoopContext.PerFarmerEffects)
++            {
++                // Each farmer receives its own progressive tools: only upgrade a tool that belongs to this farmer, never another
++                // farmer's tool sitting in a shared chest.
++                return TryUpgradeOwnStoredTool(player, toolName, out upgradedTool) ? upgradedTool : null;
++            }
++
+             if (TryUpgradeToolInChests(toolName, out upgradedTool))
+             {
+                 return upgradedTool;
+@@ -40,10 +49,50 @@ namespace StardewArchipelago.Items
+             return TryUpgradeHat(player, toolName, out upgradedTool);
+         }
+ 
+-        private bool TryUpgradeToolInInventory(IList<Item> inventory, string toolName, out Tool upgradedTool)
++        // Multiplayer: a tool tagged as this farmer's anywhere in the world, else an untagged tool stored in this farmer's own home.
++        private bool TryUpgradeOwnStoredTool(Farmer player, string toolName, out Tool upgradedTool)
++        {
++            if (TryUpgradeToolInChests(toolName, out upgradedTool, item => FarmerCoopData.IsToolOwnedBy(item, player)))
++            {
++                return true;
++            }
++
++            if (TryUpgradeToolInGlobalInventories(player, toolName, out upgradedTool, item => FarmerCoopData.IsToolOwnedBy(item, player)))
++            {
++                return true;
++            }
++
++            if (Utility.getHomeOfFarmer(player) is FarmHouse home)
++            {
++                Func<Item, bool> unclaimed = item => !FarmerCoopData.HasToolOwner(item);
++                foreach (var gameObject in home.Objects.Values)
++                {
++                    if (gameObject is Chest chest && TryUpgradeToolInInventory(chest.Items, toolName, out upgradedTool, unclaimed))
++                    {
++                        return true;
++                    }
++                }
++
++                var fridge = home.GetFridge(false);
++                if (fridge != null && TryUpgradeToolInInventory(fridge.Items, toolName, out upgradedTool, unclaimed))
++                {
++                    return true;
++                }
++            }
++
++            upgradedTool = null;
++            return false;
++        }
++
++        private bool TryUpgradeToolInInventory(IList<Item> inventory, string toolName, out Tool upgradedTool, Func<Item, bool> filter = null)
+         {
+             for (var i = 0; i < inventory.Count; i++)
+             {
++                if (filter != null && !filter(inventory[i]))
++                {
++                    continue;
++                }
++
+                 if (TryUpgradeCorrectTool(toolName, inventory[i], out upgradedTool))
+                 {
+                     inventory[i] = upgradedTool;
+@@ -75,7 +124,7 @@ namespace StardewArchipelago.Items
+             return false;
+         }
+ 
+-        private bool TryUpgradeToolInChests(string toolName, out Tool upgradedTool)
++        private bool TryUpgradeToolInChests(string toolName, out Tool upgradedTool, Func<Item, bool> filter = null)
+         {
+             var locations = Game1.locations.ToList();
+ 
+@@ -97,7 +146,7 @@ namespace StardewArchipelago.Items
+                         continue;
+                     }
+ 
+-                    if (TryUpgradeToolInInventory(chest.Items, toolName, out upgradedTool))
++                    if (TryUpgradeToolInInventory(chest.Items, toolName, out upgradedTool, filter))
+                     {
+                         return true;
+                     }
+@@ -107,7 +156,7 @@ namespace StardewArchipelago.Items
+ 
+             if (Game1.getLocationFromName("FarmHouse") is FarmHouse farmHouse)
+             {
+-                if (TryUpgradeToolInInventory(farmHouse.GetFridge(false).Items, toolName, out upgradedTool))
++                if (TryUpgradeToolInInventory(farmHouse.GetFridge(false).Items, toolName, out upgradedTool, filter))
+                 {
+                     return true;
+                 }
+@@ -115,7 +164,7 @@ namespace StardewArchipelago.Items
+ 
+             if (Game1.getLocationFromName("IslandFarmHouse") is IslandFarmHouse islandHouse)
+             {
+-                if (TryUpgradeToolInInventory(islandHouse.GetFridge(false).Items, toolName, out upgradedTool))
++                if (TryUpgradeToolInInventory(islandHouse.GetFridge(false).Items, toolName, out upgradedTool, filter))
+                 {
+                     return true;
+                 }
+@@ -141,11 +190,11 @@ namespace StardewArchipelago.Items
+             return false;
+         }
+ 
+-        private bool TryUpgradeToolInGlobalInventories(Farmer player, string toolName, out Tool upgradedTool)
++        private bool TryUpgradeToolInGlobalInventories(Farmer player, string toolName, out Tool upgradedTool, Func<Item, bool> filter = null)
+         {
+             foreach (var inventoryKey in player.team.globalInventories.Keys.ToArray())
+             {
+-                if (TryUpgradeToolInInventory(player.team.globalInventories[inventoryKey], toolName, out upgradedTool))
++                if (TryUpgradeToolInInventory(player.team.globalInventories[inventoryKey], toolName, out upgradedTool, filter))
+                 {
+                     return true;
+                 }
+@@ -191,6 +240,10 @@ namespace StardewArchipelago.Items
+         {
+             var newTool = UpgradeTool(toolName);
+             newTool.UpgradeFrom(toolToUpgrade);
++            if (toolToUpgrade.modData.TryGetValue(FarmerCoopData.TOOL_OWNER_KEY, out var owner))
++            {
++                newTool.modData[FarmerCoopData.TOOL_OWNER_KEY] = owner; // the upgrade stays the same farmer's tool
++            }
+             return newTool;
+         }
+ 
+diff --git a/StardewArchipelago/ModEntry.Coop.cs b/StardewArchipelago/ModEntry.Coop.cs
+index fd68c18..beae78f 100644
+--- a/StardewArchipelago/ModEntry.Coop.cs
++++ b/StardewArchipelago/ModEntry.Coop.cs
+@@ -38,6 +38,14 @@ namespace StardewArchipelago
+ 
+         private void CoopUpdateTicked()
+         {
++            if (Context.IsMultiplayer && Context.IsWorldReady && _itemManager != null && Game1.ticks % 60 == 0)
++            {
++                FarmerCoopData.TagLocalPlayerTools();
++                // A farmhand can leave mid-day: keep its AP XP/friendship in its Farmer.modData (synced to the host) as they
++                // change, like the item cursor, instead of only at day end. Write() is a no-op when nothing changed.
++                SaveFarmhandPersonalData();
++            }
++
+             if (!_farmhandWaitingForHost || _farmhandJoined || !Context.IsWorldReady || !IsFarmhand)
+             {
+                 return;
+@@ -213,7 +221,7 @@ namespace StardewArchipelago
+ 
+         private void SaveFarmhandPersonalData()
+         {
+-            if (!IsFarmhand || _itemManager == null)
++            if (!IsFarmhand || !_farmhandJoined || _itemManager == null)
+             {
+                 return; // not joined yet: nothing loaded, so nothing to write over
+             }
