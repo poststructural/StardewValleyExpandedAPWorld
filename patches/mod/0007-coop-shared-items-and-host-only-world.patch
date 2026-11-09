@@ -1,0 +1,922 @@
+diff --git a/StardewArchipelago/Archipelago/ChatForwarder.cs b/StardewArchipelago/Archipelago/ChatForwarder.cs
+index 8828a96..3576ade 100644
+--- a/StardewArchipelago/Archipelago/ChatForwarder.cs
++++ b/StardewArchipelago/Archipelago/ChatForwarder.cs
+@@ -80,6 +80,11 @@ namespace StardewArchipelago.Archipelago
+                     return;
+                 }
+ 
++                if (Context.IsMultiplayer && sourceFarmer != Game1.player.UniqueMultiplayerID)
++                {
++                    return; // co-op: every game sees every farmer's chat; only the sender's game forwards it or runs its command
++                }
++
+                 if (TryHandleCommand(message))
+                 {
+                     return;
+diff --git a/StardewArchipelago/Archipelago/DeathManager.cs b/StardewArchipelago/Archipelago/DeathManager.cs
+index 18d5c17..788b02e 100644
+--- a/StardewArchipelago/Archipelago/DeathManager.cs
++++ b/StardewArchipelago/Archipelago/DeathManager.cs
+@@ -9,6 +9,7 @@ using StardewArchipelago.Locations.CodeInjections.Vanilla.Bundles;
+ using StardewModdingAPI;
+ using StardewValley;
+ using StardewValley.Locations;
++using StardewArchipelago.Coop;
+ 
+ namespace StardewArchipelago.Archipelago
+ {
+@@ -38,7 +39,7 @@ namespace StardewArchipelago.Archipelago
+ 
+             ModEntry.Instance.State.Wallet.DeathLinks++;
+             _isCurrentlyReceivingDeathLink = true;
+-            foreach (var farmer in Game1.getAllFarmers())
++            foreach (var farmer in CoopContext.FarmersToAffect()) // co-op: every connected game receives the DeathLink and kills its own farmer
+             {
+                 farmer.health = 0;
+             }
+diff --git a/StardewArchipelago/Coop/ItemScopes.cs b/StardewArchipelago/Coop/ItemScopes.cs
+new file mode 100644
+index 0000000..0ce7b20
+--- /dev/null
++++ b/StardewArchipelago/Coop/ItemScopes.cs
+@@ -0,0 +1,123 @@
++﻿using System;
++using System.Collections.Generic;
++using System.Linq;
++using Newtonsoft.Json;
++using StardewArchipelago.Constants;
++using StardewArchipelago.Items.Unlocks.Vanilla;
++using StardewModdingAPI;
++using StardewValley;
++
++namespace StardewArchipelago.Coop
++{
++    /// <summary>Who applies a received Archipelago item in a co-op game.</summary>
++    public enum ItemScope
++    {
++        /// <summary>Applied once, by the host only: money, physical items, traps, world unlocks.</summary>
++        Team,
++
++        /// <summary>Applied by every farmer on its own game, to its own Farmer: backpack, tools, recipes, skills, flags...</summary>
++        PerFarmer,
++    }
++
++    /// <summary>
++    /// The co-op item scope table (phase C2). <see cref="Items.ItemParser.GetScope"/> classifies an item by the same rules the
++    /// parser uses to turn it into a letter, without running any handler; the exceptions to those rules live here.
++    ///
++    ///   Team      traps; money and resource packs; physical items (single items, stardrop, real books); the unlocks listed
++    ///             in <see cref="TeamUnlocks"/> (raccoon, Ginger Island, beach bridge, farm cave, babies, Pierre's stocklist,
++    ///             free cactis); info-only items not listed as per-farmer below (seasons, buildings, ...: their effect
++    ///             is read from the server item count on every client, only the letter is scoped).
++    ///   PerFarmer friendship bonus; enzymes; every other unlock (backpack, tools, scythe, rod, weapons, boots, slingshot,
++    ///             skills, masteries, keys/wallet items, power books, villager arrivals, CC/boat/SVE mail flags and events,
++    ///             spells, mod skills); cooking and crafting recipes; "X &lt;3" heart items; "... Bonus" player buffs.
++    /// </summary>
++    public static class ItemScopes
++    {
++        private static readonly HashSet<string> TeamUnlocks = new()
++        {
++            APItem.PROGRESSIVE_RACCOON,
++            VanillaUnlockManager.BEACH_BRIDGE,
++            VanillaUnlockManager.FRUIT_BATS,
++            VanillaUnlockManager.MUSHROOM_BOXES,
++            VanillaUnlockManager.PIERRE_STOCKLIST,
++            VanillaUnlockManager.FREE_CACTIS,
++            VanillaUnlockManager.ISLAND_MAILBOX,
++            VanillaUnlockManager.ISLAND_FARMHOUSE,
++            VanillaUnlockManager.TREEHOUSE,
++            "Island North Turtle",
++            "Island West Turtle",
++            "Dig Site Bridge",
++            "Island Trader",
++            "Island Resort",
++            "Farm Obelisk",
++            "Parrot Express",
++            "Volcano Bridge",
++            "Volcano Exit Shortcut",
++            "Open Professor Snail Cave",
++            "Ugly Baby",
++            "Cute Baby",
++            APItem.STARDROP,
++        };
++
++        private const string REAL_BOOK_PREFIX = "Book: ";
++
++        public static ItemScope ForUnlock(string itemName)
++        {
++            return TeamUnlocks.Contains(itemName) || itemName.StartsWith(REAL_BOOK_PREFIX) ? ItemScope.Team : ItemScope.PerFarmer;
++        }
++
++        public static ItemScope ForInformationOnly(string itemName)
++        {
++            return itemName.EndsWith(" <3") || itemName.EndsWith(" Bonus") ? ItemScope.PerFarmer : ItemScope.Team;
++        }
++    }
++
++    /// <summary>Per-farmer co-op data, kept in <see cref="Farmer.modData"/>: synced to the host and saved with the host's save.</summary>
++    public static class FarmerCoopData
++    {
++        private const string PREFIX = "KaitoKid.StardewArchipelago/";
++        public const string ITEMS_APPLIED_KEY = PREFIX + "ItemsAppliedUpTo";
++        public const string AP_EXPERIENCE_KEY = PREFIX + "ApExperience";
++        public const string AP_FRIENDSHIP_KEY = PREFIX + "ApFriendship";
++
++        /// <summary>Index of the first received item this farmer has not applied yet (items 0..N-1 are applied).</summary>
++        public static int GetItemsAppliedUpTo(Farmer farmer)
++        {
++            return farmer.modData.TryGetValue(ITEMS_APPLIED_KEY, out var value) && int.TryParse(value, out var cursor) ? cursor : 0;
++        }
++
++        public static void SetItemsAppliedUpTo(Farmer farmer, int cursor)
++        {
++            farmer.modData[ITEMS_APPLIED_KEY] = cursor.ToString();
++        }
++
++        public static T Read<T>(Farmer farmer, string key) where T : class
++        {
++            return farmer.modData.TryGetValue(key, out var json) && !string.IsNullOrWhiteSpace(json) ? JsonConvert.DeserializeObject<T>(json) : null;
++        }
++
++        public static void Write<T>(Farmer farmer, string key, T value)
++        {
++            farmer.modData[key] = JsonConvert.SerializeObject(value);
++        }
++    }
++
++    public static class CoopContext
++    {
++        /// <summary>True only for a non-host player in a multiplayer game. Always false in single-player.</summary>
++        public static bool IsFarmhand => Context.IsMultiplayer && !Context.IsMainPlayer;
++
++        /// <summary>
++        /// True when the save has more than one farmer. Personal effects then go to the local farmer only, because every other
++        /// farmer applies them on its own game (writes to a remote farmer's fields do not sync). False in a one-farmer save,
++        /// where behaviour is unchanged.
++        /// </summary>
++        public static bool PerFarmerEffects => Context.IsMultiplayer || Game1.getAllFarmers().Skip(1).Any();
++
++        /// <summary>The farmers a personal effect is written to on this game.</summary>
++        public static IEnumerable<Farmer> FarmersToAffect()
++        {
++            return PerFarmerEffects ? new[] { Game1.player } : Game1.getAllFarmers();
++        }
++    }
++}
+diff --git a/StardewArchipelago/GameModifications/AdvancedOptionsManager.cs b/StardewArchipelago/GameModifications/AdvancedOptionsManager.cs
+index 6ba5bc7..2335a92 100644
+--- a/StardewArchipelago/GameModifications/AdvancedOptionsManager.cs
++++ b/StardewArchipelago/GameModifications/AdvancedOptionsManager.cs
+@@ -103,7 +103,12 @@ namespace StardewArchipelago.GameModifications
+                 ForceFarmTypeToArchipelagoProvidedFarm();
+                 Game1.bundleType = Game1.BundleType.Default;
+                 Game1.game1.SetNewGameOption<bool>("YearOneCompletable", false);
+-                Game1.startingCabins = _testerFeatures.Multiplayer.Value;
++                // Respect the cabins the player picked in the co-op "Host New Farm" menu. The tester feature still
++                // overrides it when set (tester.json "Multiplayer": N).
++                if (_testerFeatures.Multiplayer.Value > 0)
++                {
++                    Game1.startingCabins = _testerFeatures.Multiplayer.Value;
++                }
+                 Game1.cabinsSeparate = false;
+ 
+                 return MethodPrefix.RUN_ORIGINAL_METHOD;
+@@ -136,7 +141,7 @@ namespace StardewArchipelago.GameModifications
+         {
+             try
+             {
+-                if (!(TitleMenu.subMenu is CharacterCustomization characterMenu) || TitleMenu.subMenu is CharacterCustomizationArchipelago || characterMenu.source != CharacterCustomization.Source.NewGame)
++                if (!(TitleMenu.subMenu is CharacterCustomization characterMenu) || TitleMenu.subMenu is CharacterCustomizationArchipelago || (characterMenu.source != CharacterCustomization.Source.NewGame && characterMenu.source != CharacterCustomization.Source.HostNewFarm))
+                 {
+                     return;
+                 }
+diff --git a/StardewArchipelago/GameModifications/Modded/JunimoShopStockModifier.cs b/StardewArchipelago/GameModifications/Modded/JunimoShopStockModifier.cs
+index bf7f282..50d9ec8 100644
+--- a/StardewArchipelago/GameModifications/Modded/JunimoShopStockModifier.cs
++++ b/StardewArchipelago/GameModifications/Modded/JunimoShopStockModifier.cs
+@@ -12,6 +12,7 @@ using StardewValley;
+ using StardewValley.GameData.Shops;
+ using System.Collections.Generic;
+ using System.Linq;
++using StardewArchipelago.Extensions;
+ 
+ namespace StardewArchipelago.GameModifications.Modded
+ {
+@@ -83,7 +84,7 @@ namespace StardewArchipelago.GameModifications.Modded
+                     fishSeasons = fishInfo.Split("/")[6].Split(" ");
+                 }
+                 var fishItem = _stardewItemManager.GetObjectById(id);
+-                var itemHashCode = fishItem.GetHashCode();
++                var itemHashCode = fishItem.Name.GetHash(); // co-op: stable across clients
+                 var condition = $"SYNCED_RANDOM day junimo_shops_{itemHashCode} 0.4 @addDailyLuck, PLAYER_HAS_CAUGHT_FISH Current {id}";
+                 if (fishSeasons is not null)
+                 {
+@@ -102,7 +103,7 @@ namespace StardewArchipelago.GameModifications.Modded
+ 
+             foreach (var rock in mineralObjects)
+             {
+-                var itemHashCode = rock.GetHashCode();
++                var itemHashCode = rock.Name.GetHash(); // co-op: stable across clients
+                 var mineralCondition = $"{GameStateCondition.FOUND_MINERAL} {rock.Id}, SYNCED_RANDOM day junimo_shops_{itemHashCode} 0.4 @addDailyLuck";
+                 shopData.Items.Add(CreateBarterItem(greyItems, rock, mineralCondition, offeredStock: stockCount, priceReduction: priceReduction));
+             }
+@@ -116,7 +117,7 @@ namespace StardewArchipelago.GameModifications.Modded
+             var redObjects = _stardewItemManager.GetObjectsByColor("Red");
+             foreach (var artifact in artifactObjects)
+             {
+-                var itemHashCode = artifact.GetHashCode();
++                var itemHashCode = artifact.Name.GetHash(); // co-op: stable across clients
+                 var artifactCondition = $"{GameStateCondition.FOUND_ARTIFACT} {artifact.Id}, SYNCED_RANDOM day junimo_shops_{itemHashCode} 0.4 @addDailyLuck";
+                 shopData.Items.Add(CreateBarterItem(redObjects, artifact, artifactCondition, offeredStock: stockCount, priceReduction: priceReduction));
+             }
+@@ -183,7 +184,7 @@ namespace StardewArchipelago.GameModifications.Modded
+         private ShopItemData CreateJunimoSeedItem(List<StardewObject> yellowObjects, string qualifiedId, int stockCount, double priceReduction, string[] season = null)
+         {
+             var seedItemName = _stardewItemManager.GetItemByQualifiedId(qualifiedId).Name;
+-            var itemHashCode = seedItemName.GetHashCode();
++            var itemHashCode = seedItemName.GetHash(); // co-op: stable across clients
+             var condition = $"SYNCED_RANDOM day junimo_shops_{itemHashCode} 0.4 @addDailyLuck";
+             ;
+             if (season is not null)
+diff --git a/StardewArchipelago/GameModifications/RecipeDataRemover.cs b/StardewArchipelago/GameModifications/RecipeDataRemover.cs
+index 69d4372..1ad345b 100644
+--- a/StardewArchipelago/GameModifications/RecipeDataRemover.cs
++++ b/StardewArchipelago/GameModifications/RecipeDataRemover.cs
+@@ -8,6 +8,7 @@ using StardewArchipelago.Constants.Modded;
+ using StardewModdingAPI;
+ using StardewModdingAPI.Events;
+ using StardewValley;
++using StardewArchipelago.Coop;
+ 
+ namespace StardewArchipelago.GameModifications
+ {
+@@ -99,7 +100,7 @@ namespace StardewArchipelago.GameModifications
+ 
+                 var modifiedRecipe = recipeData.Replace(recipeUnlockCondition, "none");
+                 cookingRecipesData[recipeName] = modifiedRecipe;
+-                foreach (var farmer in Game1.getAllFarmers())
++                foreach (var farmer in CoopContext.FarmersToAffect())
+                 {
+                     if (farmer.cookingRecipes.ContainsKey(recipeName) && !_archipelago.HasReceivedItem($"{recipeName} Recipe"))
+                     {
+@@ -183,7 +184,7 @@ namespace StardewArchipelago.GameModifications
+ 
+                 var modifiedRecipe = recipeData.Replace(recipeUnlockCondition, "none");
+                 craftingRecipesData[recipeName] = modifiedRecipe;
+-                foreach (var farmer in Game1.getAllFarmers())
++                foreach (var farmer in CoopContext.FarmersToAffect())
+                 {
+                     if (farmer.craftingRecipes.ContainsKey(recipeName) && !_archipelago.HasReceivedItem($"{recipeName} Recipe"))
+                     {
+@@ -240,7 +241,7 @@ namespace StardewArchipelago.GameModifications
+             foreach (var recipeName in craftingRecipesData.Keys.ToArray())
+             {
+                 var recipeData = craftingRecipesData[recipeName];
+-                foreach (var farmer in Game1.getAllFarmers())
++                foreach (var farmer in CoopContext.FarmersToAffect())
+                 {
+                     if (!farmer.craftingRecipes.ContainsKey(recipeName) && _archipelago.HasReceivedItem($"{recipeName} Recipe"))
+                     {
+diff --git a/StardewArchipelago/GameModifications/SeedShopStockModifier.cs b/StardewArchipelago/GameModifications/SeedShopStockModifier.cs
+index 05f76a4..07a084d 100644
+--- a/StardewArchipelago/GameModifications/SeedShopStockModifier.cs
++++ b/StardewArchipelago/GameModifications/SeedShopStockModifier.cs
+@@ -297,7 +297,7 @@ namespace StardewArchipelago.GameModifications
+                 priceMultiplier *= 1.5f;
+             }
+ 
+-            if (Game1.player.hasOrWillReceiveMail(JojaConstants.MEMBERSHIP_MAIL))
++            if (Game1.MasterPlayer.hasOrWillReceiveMail(JojaConstants.MEMBERSHIP_MAIL)) // the farm's Joja membership (the host's), same on every client
+             {
+                 priceMultiplier *= 1.5f;
+                 maxAmount /= 2;
+diff --git a/StardewArchipelago/Goals/GoalCodeInjection.cs b/StardewArchipelago/Goals/GoalCodeInjection.cs
+index 22f8bba..8102653 100644
+--- a/StardewArchipelago/Goals/GoalCodeInjection.cs
++++ b/StardewArchipelago/Goals/GoalCodeInjection.cs
+@@ -23,6 +23,7 @@ using StardewArchipelago.Archipelago.ApworldData;
+ using StardewArchipelago.Constants;
+ using StardewArchipelago.Locations.ShopStockModifiers;
+ using Object = StardewValley.Object;
++using StardewArchipelago.Coop;
+ 
+ namespace StardewArchipelago.Goals
+ {
+@@ -751,6 +752,11 @@ namespace StardewArchipelago.Goals
+                     return;
+                 }
+             }
++            if (CoopContext.IsFarmhand)
++            {
++                return; // co-op: goals are reported by the host (they read the host's farmer)
++            }
++
+             _archipelago.ReportGoalCompletion();
+         }
+ 
+diff --git a/StardewArchipelago/Items/APItemManager.cs b/StardewArchipelago/Items/APItemManager.cs
+index 82c145b..a43a852 100644
+--- a/StardewArchipelago/Items/APItemManager.cs
++++ b/StardewArchipelago/Items/APItemManager.cs
+@@ -4,10 +4,12 @@ using KaitoKid.ArchipelagoUtilities.Net;
+ using KaitoKid.ArchipelagoUtilities.Net.Client;
+ using KaitoKid.Utilities.Interfaces;
+ using StardewArchipelago.Archipelago;
++using StardewArchipelago.Coop;
+ using StardewArchipelago.Items.Mail;
+ using StardewArchipelago.Items.Traps;
+ using StardewArchipelago.Stardew;
+ using StardewModdingAPI;
++using StardewValley;
+ 
+ namespace StardewArchipelago.Items
+ {
+@@ -15,6 +17,7 @@ namespace StardewArchipelago.Items
+     {
+         private readonly ItemParser _itemParser;
+         private readonly Mailman _mail;
++        private readonly ILogger _logger;
+ 
+         public ItemParser ItemParser => _itemParser;
+         public TrapManager TrapManager => _itemParser.TrapManager;
+@@ -23,6 +26,41 @@ namespace StardewArchipelago.Items
+         {
+             _itemParser = new ItemParser(logger, helper, harmony, archipelago, locationChecker, itemManager, trapExecutor, giftTrapManager);
+             _mail = mail;
++            _logger = logger;
++        }
++
++        // Co-op (phase C2). The host applies every item and tracks them in its saved State, as in single-player. A farmhand applies
++        // only per-farmer items, to its own farmer, and tracks progress with a cursor in its Farmer.modData (saved with the host's
++        // save), so a late joiner catches up and nothing replays after a reload.
++        protected override void ReceiveNewItem(ReceivedItem receivedItem, bool immediatelyIfPossible)
++        {
++            if (!CoopContext.IsFarmhand)
++            {
++                if (Context.IsMultiplayer && !_itemsAlreadyProcessed.Contains(receivedItem))
++                {
++                    _logger.LogInfo($"[coop] host applies item #{receivedItem.UniqueId} '{receivedItem.ItemName}' (scope {_itemParser.GetScope(receivedItem.ItemName)})");
++                }
++
++                base.ReceiveNewItem(receivedItem, immediatelyIfPossible);
++                return;
++            }
++
++            lock (_itemsAlreadyProcessed)
++            {
++                if (receivedItem.UniqueId < FarmerCoopData.GetItemsAppliedUpTo(Game1.player))
++                {
++                    return;
++                }
++
++                var scope = _itemParser.GetScope(receivedItem.ItemName);
++                _logger.LogInfo($"[coop] farmhand {(scope == ItemScope.PerFarmer ? "applies" : "skips (team, host applies)")} item #{receivedItem.UniqueId} '{receivedItem.ItemName}'");
++                if (scope == ItemScope.PerFarmer)
++                {
++                    ProcessItem(receivedItem, immediatelyIfPossible);
++                }
++
++                FarmerCoopData.SetItemsAppliedUpTo(Game1.player, receivedItem.UniqueId + 1);
++            }
+         }
+ 
+         protected override void ProcessItem(ReceivedItem receivedItem, bool immediatelyIfPossible)
+diff --git a/StardewArchipelago/Items/ItemParser.cs b/StardewArchipelago/Items/ItemParser.cs
+index cbf364a..fe92afc 100644
+--- a/StardewArchipelago/Items/ItemParser.cs
++++ b/StardewArchipelago/Items/ItemParser.cs
+@@ -4,6 +4,7 @@ using KaitoKid.ArchipelagoUtilities.Net;
+ using KaitoKid.ArchipelagoUtilities.Net.Client;
+ using KaitoKid.Utilities.Interfaces;
+ using StardewArchipelago.Archipelago;
++using StardewArchipelago.Coop;
+ using StardewArchipelago.Items.Mail;
+ using StardewArchipelago.Items.Traps;
+ using StardewArchipelago.Items.Unlocks;
+@@ -58,6 +59,45 @@ namespace StardewArchipelago.Items
+             return false;
+         }
+ 
++        /// <summary>
++        /// Co-op scope of a received item, decided by the same rules as <see cref="ProcessItemAsLetter"/> in the same order,
++        /// without running any handler (handlers can have side effects). Exceptions are in <see cref="ItemScopes"/>.
++        /// </summary>
++        public ItemScope GetScope(string itemName)
++        {
++            if (TryParseResourcePack(itemName, out _, out _))
++            {
++                return ItemScope.Team; // money and resource packs: one copy for the farm
++            }
++
++            if (TryParseFriendshipBonus(itemName, out _) || itemName.EndsWith(" Enzyme"))
++            {
++                return ItemScope.PerFarmer;
++            }
++
++            if (_trapManager.IsTrap(itemName))
++            {
++                return ItemScope.Team;
++            }
++
++            if (_unlockManager.IsUnlock(itemName))
++            {
++                return ItemScopes.ForUnlock(itemName);
++            }
++
++            if (itemName.EndsWith(RECIPE_SUFFIX))
++            {
++                return ItemScope.PerFarmer;
++            }
++
++            if (_itemManager.ItemExists(_nameMapper.GetInternalName(itemName)))
++            {
++                return ItemScope.Team; // a physical item: one copy for the farm
++            }
++
++            return ItemScopes.ForInformationOnly(itemName);
++        }
++
+         public LetterAttachment ProcessItemAsLetter(ReceivedItem receivedItem)
+         {
+             var itemIsResourcePack = TryParseResourcePack(receivedItem.ItemName, out var stardewItemName, out var resourcePackAmount);
+diff --git a/StardewArchipelago/Items/Unlocks/Modded/MagicUnlockManager.cs b/StardewArchipelago/Items/Unlocks/Modded/MagicUnlockManager.cs
+index a2cd7d4..c3f443e 100644
+--- a/StardewArchipelago/Items/Unlocks/Modded/MagicUnlockManager.cs
++++ b/StardewArchipelago/Items/Unlocks/Modded/MagicUnlockManager.cs
+@@ -4,6 +4,7 @@ using HarmonyLib;
+ using KaitoKid.ArchipelagoUtilities.Net.Client;
+ using StardewArchipelago.Items.Mail;
+ using StardewValley;
++using StardewArchipelago.Coop;
+ 
+ namespace StardewArchipelago.Items.Unlocks.Modded
+ {
+@@ -188,7 +189,7 @@ namespace StardewArchipelago.Items.Unlocks.Modded
+ 
+         private void ReceiveSpell(string spellName)
+         {
+-            foreach (var farmer in Game1.getAllFarmers())
++            foreach (var farmer in CoopContext.FarmersToAffect())
+             {
+                 var magicType = AccessTools.TypeByName("Magic");
+                 var getSpellBookMethod = ModEntry.Instance.Helper.Reflection.GetMethod(magicType, "GetSpellBook");
+diff --git a/StardewArchipelago/Items/Unlocks/Vanilla/SkillUnlockManager.cs b/StardewArchipelago/Items/Unlocks/Vanilla/SkillUnlockManager.cs
+index 0360e3c..8d6bdbe 100644
+--- a/StardewArchipelago/Items/Unlocks/Vanilla/SkillUnlockManager.cs
++++ b/StardewArchipelago/Items/Unlocks/Vanilla/SkillUnlockManager.cs
+@@ -9,6 +9,7 @@ using StardewArchipelago.Items.Mail;
+ using StardewArchipelago.Locations.CodeInjections.Vanilla;
+ using StardewValley;
+ using StardewValley.Constants;
++using StardewArchipelago.Coop;
+ 
+ namespace StardewArchipelago.Items.Unlocks.Vanilla
+ {
+@@ -50,7 +51,7 @@ namespace StardewArchipelago.Items.Unlocks.Vanilla
+             const Skill skill = Skill.Farming;
+             var apItem = $"{skill} Level";
+             var receivedLevels = _archipelago.GetReceivedItemCount(apItem);
+-            foreach (var farmer in Game1.getAllFarmers())
++            foreach (var farmer in CoopContext.FarmersToAffect())
+             {
+                 var currentLevel = farmer.farmingLevel.Value;
+                 var newLevel = currentLevel + 1;
+@@ -72,7 +73,7 @@ namespace StardewArchipelago.Items.Unlocks.Vanilla
+             const Skill skill = Skill.Fishing;
+             var apItem = $"{skill} Level";
+             var receivedLevels = _archipelago.GetReceivedItemCount(apItem);
+-            foreach (var farmer in Game1.getAllFarmers())
++            foreach (var farmer in CoopContext.FarmersToAffect())
+             {
+                 var currentLevel = farmer.fishingLevel.Value;
+                 var newLevel = currentLevel + 1;
+@@ -94,7 +95,7 @@ namespace StardewArchipelago.Items.Unlocks.Vanilla
+             const Skill skill = Skill.Foraging;
+             var apItem = $"{skill} Level";
+             var receivedLevels = _archipelago.GetReceivedItemCount(apItem);
+-            foreach (var farmer in Game1.getAllFarmers())
++            foreach (var farmer in CoopContext.FarmersToAffect())
+             {
+                 var currentLevel = farmer.foragingLevel.Value;
+                 var newLevel = currentLevel + 1;
+@@ -116,7 +117,7 @@ namespace StardewArchipelago.Items.Unlocks.Vanilla
+             const Skill skill = Skill.Mining;
+             var apItem = $"{skill} Level";
+             var receivedLevels = _archipelago.GetReceivedItemCount(apItem);
+-            foreach (var farmer in Game1.getAllFarmers())
++            foreach (var farmer in CoopContext.FarmersToAffect())
+             {
+                 var currentLevel = farmer.miningLevel.Value;
+                 var newLevel = currentLevel + 1;
+@@ -138,7 +139,7 @@ namespace StardewArchipelago.Items.Unlocks.Vanilla
+             const Skill skill = Skill.Combat;
+             var apItem = $"{skill} Level";
+             var receivedLevels = _archipelago.GetReceivedItemCount(apItem);
+-            foreach (var farmer in Game1.getAllFarmers())
++            foreach (var farmer in CoopContext.FarmersToAffect())
+             {
+                 var currentLevel = farmer.combatLevel.Value;
+                 var newLevel = currentLevel + 1;
+@@ -158,7 +159,7 @@ namespace StardewArchipelago.Items.Unlocks.Vanilla
+         private LetterAttachment SendFarmingMastery(ReceivedItem receivedItem)
+         {
+             const Skill skill = Skill.Farming;
+-            foreach (var farmer in Game1.getAllFarmers())
++            foreach (var farmer in CoopContext.FarmersToAffect())
+             {
+                 AddCraftingRecipes(farmer, new[] { "Statue Of Blessings" });
+                 GiveItemsToFarmer(farmer, "(W)66");
+@@ -170,7 +171,7 @@ namespace StardewArchipelago.Items.Unlocks.Vanilla
+         private LetterAttachment SendForagingMastery(ReceivedItem receivedItem)
+         {
+             const Skill skill = Skill.Foraging;
+-            foreach (var farmer in Game1.getAllFarmers())
++            foreach (var farmer in CoopContext.FarmersToAffect())
+             {
+                 AddCraftingRecipes(farmer, new[] { "Mystic Tree Seed", "Treasure Totem" });
+                 farmer.stats.Increment(StatKeys.Mastery((int)skill), 1);
+@@ -181,7 +182,7 @@ namespace StardewArchipelago.Items.Unlocks.Vanilla
+         private LetterAttachment SendFishingMastery(ReceivedItem receivedItem)
+         {
+             const Skill skill = Skill.Fishing;
+-            foreach (var farmer in Game1.getAllFarmers())
++            foreach (var farmer in CoopContext.FarmersToAffect())
+             {
+                 AddCraftingRecipes(farmer, new[] { "Challenge Bait" });
+                 GiveItemsToFarmer(farmer, "(T)AdvancedIridiumRod");
+@@ -193,7 +194,7 @@ namespace StardewArchipelago.Items.Unlocks.Vanilla
+         private LetterAttachment SendMiningMastery(ReceivedItem receivedItem)
+         {
+             const Skill skill = Skill.Mining;
+-            foreach (var farmer in Game1.getAllFarmers())
++            foreach (var farmer in CoopContext.FarmersToAffect())
+             {
+                 AddCraftingRecipes(farmer, new[] { "Statue Of The Dwarf King", "Heavy Furnace" });
+                 farmer.stats.Increment(StatKeys.Mastery((int)skill), 1);
+@@ -204,7 +205,7 @@ namespace StardewArchipelago.Items.Unlocks.Vanilla
+         private LetterAttachment SendCombatMastery(ReceivedItem receivedItem)
+         {
+             const Skill skill = Skill.Combat;
+-            foreach (var farmer in Game1.getAllFarmers())
++            foreach (var farmer in CoopContext.FarmersToAffect())
+             {
+                 AddCraftingRecipes(farmer, new[] { "Anvil", "Mini-Forge" });
+                 Game1.player.stats.Set("trinketSlots", 1);
+diff --git a/StardewArchipelago/Locations/CodeInjections/Modded/SVE/BearShopStockModifier.cs b/StardewArchipelago/Locations/CodeInjections/Modded/SVE/BearShopStockModifier.cs
+index 396fbf9..c17384b 100644
+--- a/StardewArchipelago/Locations/CodeInjections/Modded/SVE/BearShopStockModifier.cs
++++ b/StardewArchipelago/Locations/CodeInjections/Modded/SVE/BearShopStockModifier.cs
+@@ -11,6 +11,7 @@ using StardewValley;
+ using StardewValley.GameData.Shops;
+ using System;
+ using System.Linq;
++using StardewArchipelago.Extensions;
+ 
+ namespace StardewArchipelago.Locations.CodeInjections.Modded.SVE
+ {
+@@ -49,7 +50,7 @@ namespace StardewArchipelago.Locations.CodeInjections.Modded.SVE
+         {
+             var berryItems = _stardewItemManager.GetObjectsWithPhrase("berry").ToList();
+             var priceReduction = 1 - BearDiscount();
+-            var random = new Random((int)Game1.stats.DaysPlayed + (int)Game1.uniqueIDForThisGame / 2 + shopData.GetHashCode());
++            var random = new Random((int)Game1.stats.DaysPlayed + (int)Game1.uniqueIDForThisGame / 2 + "BearShop".GetHash()); // co-op: stable across clients
+             var chosenItemGroup = berryItems.Where(x => !(x.Name.Contains("Joja") || x.Name.Contains("Seeds") || x.Name.Contains("Starter")) && x.SellPrice > 0).ToList();
+             foreach (var shopItem in shopData.Items)
+             {
+diff --git a/StardewArchipelago/Locations/CodeInjections/Vanilla/Bundles/ArchipelagoJunimoNoteMenu.cs b/StardewArchipelago/Locations/CodeInjections/Vanilla/Bundles/ArchipelagoJunimoNoteMenu.cs
+index 2d68b03..e4d3b36 100644
+--- a/StardewArchipelago/Locations/CodeInjections/Vanilla/Bundles/ArchipelagoJunimoNoteMenu.cs
++++ b/StardewArchipelago/Locations/CodeInjections/Vanilla/Bundles/ArchipelagoJunimoNoteMenu.cs
+@@ -37,6 +37,7 @@ using System.Linq;
+ using System.Reflection;
+ using Color = Microsoft.Xna.Framework.Color;
+ using Object = StardewValley.Object;
++using StardewArchipelago.Coop;
+ 
+ namespace StardewArchipelago.Locations.CodeInjections.Vanilla.Bundles
+ {
+@@ -2561,6 +2562,10 @@ namespace StardewArchipelago.Locations.CodeInjections.Vanilla.Bundles
+             HasLookedAtHibernationBundleToday = false;
+             HasLookedAtStanleyBundleToday = false;
+             _slidingPuzzle = null;
++            if (CoopContext.IsFarmhand)
++            {
++                return; // co-op: the daily bundle gift and auto-completions happen once, on the host
++            }
+ 
+             SendMinistryOfMadnessGift(giftReceiver);
+             if (Game1.currentLocation is CommunityCenter)
+diff --git a/StardewArchipelago/Locations/CodeInjections/Vanilla/NightShippingBehaviors.cs b/StardewArchipelago/Locations/CodeInjections/Vanilla/NightShippingBehaviors.cs
+index d83b15a..242f3a0 100644
+--- a/StardewArchipelago/Locations/CodeInjections/Vanilla/NightShippingBehaviors.cs
++++ b/StardewArchipelago/Locations/CodeInjections/Vanilla/NightShippingBehaviors.cs
+@@ -9,6 +9,7 @@ using StardewArchipelago.Constants.Modded;
+ using StardewArchipelago.Stardew.NameMapping;
+ using StardewValley;
+ using StardewValley.Objects;
++using StardewArchipelago.Coop;
+ 
+ namespace StardewArchipelago.Locations.CodeInjections.Vanilla
+ {
+@@ -40,6 +41,11 @@ namespace StardewArchipelago.Locations.CodeInjections.Vanilla
+                     return;
+                 }
+ 
++                if (CoopContext.IsFarmhand && !Game1.player.team.useSeparateWallets.Value)
++                {
++                    return; // co-op, shared shipping bin: the host reports everything shipped by any farmer, once
++                }
++
+                 _logger.LogInfo($"Currently attempting to check shipsanity locations for the current day");
+                 var allShippedItems = GetAllItemsShippedToday();
+                 _logger.LogInfo($"{allShippedItems.Count} items shipped");
+diff --git a/StardewArchipelago/Locations/CodeInjections/Vanilla/Quests/StoryQuestInjections.cs b/StardewArchipelago/Locations/CodeInjections/Vanilla/Quests/StoryQuestInjections.cs
+index 1cba7cb..ac4475d 100644
+--- a/StardewArchipelago/Locations/CodeInjections/Vanilla/Quests/StoryQuestInjections.cs
++++ b/StardewArchipelago/Locations/CodeInjections/Vanilla/Quests/StoryQuestInjections.cs
+@@ -21,6 +21,7 @@ using KaitoKid.ArchipelagoUtilities.Net.Constants;
+ using KaitoKid.Utilities.Interfaces;
+ using StardewArchipelago.Archipelago.SlotData.SlotEnums;
+ using StardewArchipelago.Locations.Secrets;
++using StardewArchipelago.Coop;
+ 
+ namespace StardewArchipelago.Locations.CodeInjections.Vanilla.Quests
+ {
+@@ -401,7 +402,7 @@ namespace StardewArchipelago.Locations.CodeInjections.Vanilla.Quests
+ 
+                 if (_archipelago.SlotData.Goal == Goal.CrypticNote)
+                 {
+-                    if (!StardewLocationChecker.PREVENT_SENDING_CHECKS)
++                    if (!StardewLocationChecker.PREVENT_SENDING_CHECKS && !CoopContext.IsFarmhand) // co-op: the host reports goals
+                     {
+                         _archipelago.ReportGoalCompletion();
+                     }
+diff --git a/StardewArchipelago/Locations/ShopStockModifiers/BarterShopStockModifier.cs b/StardewArchipelago/Locations/ShopStockModifiers/BarterShopStockModifier.cs
+index e5d237e..aff2c77 100644
+--- a/StardewArchipelago/Locations/ShopStockModifiers/BarterShopStockModifier.cs
++++ b/StardewArchipelago/Locations/ShopStockModifiers/BarterShopStockModifier.cs
+@@ -9,6 +9,7 @@ using StardewValley.GameData.Shops;
+ using System;
+ using System.Collections.Generic;
+ using System.Linq;
++using StardewArchipelago.Extensions;
+ 
+ namespace StardewArchipelago.Locations.ShopStockModifiers
+ {
+@@ -27,7 +28,7 @@ namespace StardewArchipelago.Locations.ShopStockModifiers
+             barterItem.AvailableStock = offeredStock;
+             barterItem.IsRecipe = false;
+             barterItem.AvoidRepeat = true;
+-            var random = new Random((int)Game1.stats.DaysPlayed + (int)Game1.uniqueIDForThisGame / 2 + stardewItem.GetHashCode());
++            var random = new Random((int)Game1.stats.DaysPlayed + (int)Game1.uniqueIDForThisGame / 2 + stardewItem.Name.GetHash()); // co-op: a stable hash, so every client picks the same trade
+             var chosenItemGroup = stardewObjects.Where(x => x.SellPrice > 0).ToArray();
+             var chosenItem = chosenItemGroup[random.Next(chosenItemGroup.Length)];
+             var sellPrice = (int)Math.Sqrt(chosenItem.SellPrice);
+@@ -44,7 +45,7 @@ namespace StardewArchipelago.Locations.ShopStockModifiers
+ 
+         protected void ReplaceCurrencyWithBarterGivenObjects(List<StardewObject> stardewObjects, ShopItemData item, int offeredStock = 1, double priceReduction = 1, bool isSingle = false)
+         {
+-            var random = new Random((int)(Game1.stats.DaysPlayed / 28) + (int)(Game1.uniqueIDForThisGame / 2) + item.GetHashCode());
++            var random = new Random((int)(Game1.stats.DaysPlayed / 28) + (int)(Game1.uniqueIDForThisGame / 2) + (item.Id ?? item.ItemId).GetHash()); // co-op: a stable hash, so every client picks the same trade
+             var chosenItemGroup = stardewObjects.Where(x => x.SellPrice != 0).ToArray();
+             var chosenItem = chosenItemGroup[random.Next(chosenItemGroup.Length)];
+             var newPrice = (int)(priceReduction * Math.Sqrt(item.Price));
+diff --git a/StardewArchipelago/ModEntry.Coop.cs b/StardewArchipelago/ModEntry.Coop.cs
+index 1ed18ae..fd68c18 100644
+--- a/StardewArchipelago/ModEntry.Coop.cs
++++ b/StardewArchipelago/ModEntry.Coop.cs
+@@ -1,8 +1,11 @@
+ ﻿using System;
++using System.Collections.Generic;
+ using System.Linq;
+ using Microsoft.Xna.Framework;
+ using Newtonsoft.Json;
+ using StardewArchipelago.Locations.CodeInjections.Vanilla;
++using StardewArchipelago.Locations.CodeInjections.Vanilla.Relationship;
++using StardewArchipelago.Items;
+ using StardewArchipelago.Coop;
+ using StardewArchipelago.Serialization;
+ using StardewModdingAPI;
+@@ -22,7 +25,7 @@ namespace StardewArchipelago
+         private int _farmhandTicks;
+ 
+         /// <summary>True only for a non-host player in a multiplayer game. Always false in single-player.</summary>
+-        public static bool IsFarmhand => Context.IsMultiplayer && !Context.IsMainPlayer;
++        public static bool IsFarmhand => CoopContext.IsFarmhand;
+ 
+         private void BeginFarmhandJoin()
+         {
+@@ -126,7 +129,7 @@ namespace StardewArchipelago
+         private ArchipelagoStateDto CreateStateSnapshot()
+         {
+             var snapshot = JsonConvert.DeserializeObject<ArchipelagoStateDto>(JsonConvert.SerializeObject(State));
+-            snapshot.ItemsReceived = _itemManager.GetAllItemsAlreadyProcessed();
++            snapshot.ItemsReceived = new List<KaitoKid.ArchipelagoUtilities.Net.Client.ReceivedItem>(); // a farmhand tracks its own items (Farmer.modData cursor)
+             snapshot.LocationsChecked = _locationChecker.GetAllLocationsAlreadyChecked();
+             snapshot.JojaLocationsChecked = _jojaLocationChecker.GetAllLocationsCheckedByJoja();
+             snapshot.LocationsScouted = _archipelago.ScoutedLocations;
+@@ -162,10 +165,10 @@ namespace StardewArchipelago
+             {
+                 // Held in memory only. A farmhand never reads or writes SMAPI save data (per-farmer persistence is Farmer.modData, phase C2).
+                 State = join.Snapshot;
++                State.ItemsReceived = new List<KaitoKid.ArchipelagoUtilities.Net.Client.ReceivedItem>();
+                 _archipelago.ScoutedLocations = State.LocationsScouted;
+                 _archipelago.ScoutHintedLocations = State.LocationsScoutHinted.ToHashSet();
+-                SkillInjections.SetArchipelagoExperience(null);
+-                Locations.CodeInjections.Vanilla.Relationship.FriendshipInjections.SetArchipelagoFriendshipPoints(null);
++                LoadFarmhandPersonalData();
+ 
+                 if (!AttemptConnectionToArchipelago().Success)
+                 {
+@@ -174,6 +177,7 @@ namespace StardewArchipelago
+ 
+                 InitializeAfterConnection();
+                 _logger.Log("Farmhand connected to Archipelago via the host's connection info.", LogLevel.Info);
++                DoFarmhandJoinedProcesses();
+             }
+             catch (Exception)
+             {
+@@ -181,5 +185,41 @@ namespace StardewArchipelago
+                 throw;
+             }
+         }
++
++        // The join happens mid-day, after DayStarted: run the farmhand's share of the day-start steps now, so items received
++        // since its cursor (all of them for a first join) arrive in its mailbox today instead of tomorrow.
++        private void DoFarmhandJoinedProcesses()
++        {
++            var cursorBefore = FarmerCoopData.GetItemsAppliedUpTo(Game1.player);
++            _questCleaner.CleanQuests(Game1.player);
++            _mail.SendToday();
++            _locationChecker.VerifyNewLocationChecksWithArchipelago();
++            _locationChecker.SendAllLocationChecks();
++            _itemManager.ReceiveAllNewItems(false);
++            _mailPatcher.ReceiveFirstFewBackpacks();
++            _mail.SendTomorrow();
++            PlayerBuffInjections.CheckForApBuffs();
++            _helper.GameContent.InvalidateCache("Data/Shops");
++            _logger.Log($"Farmhand caught up on received items: cursor {cursorBefore} -> {FarmerCoopData.GetItemsAppliedUpTo(Game1.player)}.", LogLevel.Info);
++        }
++
++        // AP skill experience and friendship points are per farmer. The host keeps its own in SMAPI save data (unchanged); a
++        // farmhand keeps its own in its Farmer.modData, which the host saves with the farm.
++        private void LoadFarmhandPersonalData()
++        {
++            SkillInjections.SetArchipelagoExperience(FarmerCoopData.Read<Dictionary<int, int>>(Game1.player, FarmerCoopData.AP_EXPERIENCE_KEY));
++            FriendshipInjections.SetArchipelagoFriendshipPoints(FarmerCoopData.Read<Dictionary<string, int>>(Game1.player, FarmerCoopData.AP_FRIENDSHIP_KEY));
++        }
++
++        private void SaveFarmhandPersonalData()
++        {
++            if (!IsFarmhand || _itemManager == null)
++            {
++                return; // not joined yet: nothing loaded, so nothing to write over
++            }
++
++            FarmerCoopData.Write(Game1.player, FarmerCoopData.AP_EXPERIENCE_KEY, SkillInjections.GetArchipelagoExperience());
++            FarmerCoopData.Write(Game1.player, FarmerCoopData.AP_FRIENDSHIP_KEY, FriendshipInjections.GetArchipelagoFriendshipPoints());
++        }
+     }
+ }
+diff --git a/StardewArchipelago/ModEntry.cs b/StardewArchipelago/ModEntry.cs
+index 538aca8..a3ca4f5 100644
+--- a/StardewArchipelago/ModEntry.cs
++++ b/StardewArchipelago/ModEntry.cs
+@@ -224,7 +224,8 @@ namespace StardewArchipelago
+         {
+             if (IsFarmhand)
+             {
+-                return; // farmhands never touch SMAPI save data
++                SaveFarmhandPersonalData(); // farmhands never touch SMAPI save data; their own data lives in Farmer.modData
++                return;
+             }
+ 
+             _saveCleaner.OnSaving(sender, e);
+@@ -355,8 +356,11 @@ namespace StardewArchipelago
+             SeasonsRandomizer.ChangeMailKeysBasedOnSeasonsToDaysElapsed();
+             _modStateInitializer = new InitialModGameStateInitializer(_logger, _archipelago);
+             Game1.chatBox?.addMessage($"Connected to Archipelago as {_archipelago.SlotData.SlotName}. Type !!help for client commands", Color.Green);
+-            ArchipelagoJunimoNoteMenu.CompleteBundleIfExists(MemeBundleNames.CONNECTION);
+-            Game1.AddNPCs();
++            if (!IsFarmhand) // world changes happen once, on the host
++            {
++                ArchipelagoJunimoNoteMenu.CompleteBundleIfExists(MemeBundleNames.CONNECTION);
++                Game1.AddNPCs();
++            }
+         }
+ 
+         private ConnectionResult AttemptConnectionToArchipelago()
+@@ -498,8 +502,13 @@ namespace StardewArchipelago
+ 
+             SeasonsRandomizer.ChangeMailKeysBasedOnSeasonsToDaysElapsed();
+             SeasonsRandomizer.SendMailHardcodedForToday();
+-            _mail.SendTrustFundLetter();
+             ArchipelagoJunimoNoteMenu.OnDayStarted(_giftHandler.Receiver);
++            if (IsFarmhand)
++            {
++                return; // money, debt, trap buffs and trap state are team-wide: the host handles them
++            }
++
++            _mail.SendTrustFundLetter();
+             _itemManager.TrapManager.TrapExecutor.DayUpdateDebt();
+             _itemManager.TrapManager.TrapExecutor.DebuffApplier.LoadBuffs();
+             State.TrapsState.DaysShunRemaining = Math.Max(0, State.TrapsState.DaysShunRemaining - 1);
+@@ -519,16 +528,28 @@ namespace StardewArchipelago
+             }
+ 
+             _questCleaner.CleanQuests(Game1.player);
+-            FarmInjections.DeleteStartingDebris();
+-            FarmInjections.PlaceAutoBuildings();
++            if (!IsFarmhand) // world changes happen once, on the host
++            {
++                FarmInjections.DeleteStartingDebris();
++                FarmInjections.PlaceAutoBuildings();
++            }
+             _mail.SendToday();
+-            FarmInjections.ForcePetIfNeeded(_mail);
++            if (!IsFarmhand)
++            {
++                FarmInjections.ForcePetIfNeeded(_mail);
++            }
+             _locationChecker.VerifyNewLocationChecksWithArchipelago();
+             _locationChecker.SendAllLocationChecks();
+-            ArchipelagoJunimoNoteMenu.CompleteBundlesFromServer();
++            if (!IsFarmhand)
++            {
++                ArchipelagoJunimoNoteMenu.CompleteBundlesFromServer();
++            }
+             _itemManager.ReceiveAllNewItems(false);
+             _mailPatcher.ReceiveFirstFewBackpacks();
+-            _goalManager.CheckGoalCompletion();
++            if (!IsFarmhand)
++            {
++                _goalManager.CheckGoalCompletion();
++            }
+             _mail.SendTomorrow();
+             PlayerBuffInjections.CheckForApBuffs();
+             if (State.TrapDifficultyOverride != null)
+@@ -538,14 +559,23 @@ namespace StardewArchipelago
+             AppearanceRandomizer.GenerateSeededShuffledAppearances();
+             AppearanceRandomizer.RefreshAllNPCs();
+             _entranceManager.ResetCheckedEntrancesToday(_archipelago.SlotData);
+-            TheaterInjections.UpdateScheduleForEveryone();
++            if (!IsFarmhand) // NPC schedules, save fixes and the farmhouse are the host's
++            {
++                TheaterInjections.UpdateScheduleForEveryone();
++            }
+             Helper.GameContent.InvalidateCache("Data/Shops"); // This should be reworked someday
+ 
+-            var bugFixer = new BugFixer(_archipelago, _logger, _locationChecker, _stardewItemManager, State);
+-            bugFixer.FixKnownBugs();
++            if (!IsFarmhand)
++            {
++                var bugFixer = new BugFixer(_archipelago, _logger, _locationChecker, _stardewItemManager, State);
++                bugFixer.FixKnownBugs();
++            }
+ 
+             _hintHelper.GiveHintTip(_archipelago.GetSession());
+-            NoHouseInjections.BeHomelessIfNeeded();
++            if (!IsFarmhand)
++            {
++                NoHouseInjections.BeHomelessIfNeeded();
++            }
+         }
+ 
+         private void OnDayEnding(object sender, DayEndingEventArgs e)
+@@ -555,9 +585,15 @@ namespace StardewArchipelago
+                 return; // not joined yet
+             }
+ 
+-            _giftHandler.ReceiveAllGiftsTomorrow();
+             _villagerEvents.CheckJunaHearts(_archipelago);
+             _shippingBehaviors?.CheckShipsanityLocationsBeforeSleep();
++            if (IsFarmhand)
++            {
++                SaveFarmhandPersonalData(); // gifts, trap buffs and day-end bundles are the host's
++                return;
++            }
++
++            _giftHandler.ReceiveAllGiftsTomorrow();
+             _itemManager?.TrapManager.TrapExecutor.DebuffApplier.SaveBuffs();
+             ArchipelagoJunimoNoteMenu.OnDayEnded();
+         }
+@@ -583,13 +619,16 @@ namespace StardewArchipelago
+             //var uniqueFish = fish.ToHashSet();
+ 
+             ArchipelagoJunimoNoteMenu.OnUpdateTickedStatic(e);
+-            State?.Wallet?.CookieClicker?.DoFrame();
++            if (!IsFarmhand)
++            {
++                State?.Wallet?.CookieClicker?.DoFrame();
++            }
+             if (!_archipelago.IsConnected || _itemManager == null)
+             {
+                 return;
+             }
+ 
+-            if (e.IsMultipleOf(300))
++            if (e.IsMultipleOf(300) && !IsFarmhand) // traps are team items: only the host has any queued
+             {
+                 _itemManager.ItemParser.TrapManager.DequeueTrap();
+             }

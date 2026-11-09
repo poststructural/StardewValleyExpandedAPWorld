@@ -217,13 +217,8 @@ def build_and_install(args, work, cfg):
         if dst.exists() and not (backup / dst.name).exists():
             shutil.copytree(dst, backup / dst.name)
         shutil.copytree(src, dst, dirs_exist_ok=True)
-    # The client forces Game1.startingCabins to its "Multiplayer" tester feature when it creates a save, so the co-op host
-    # needs it set to get a cabin; single-player runs must not have it.
-    tester = mods / "StardewArchipelago" / "tester.json"
-    if getattr(args, "mode", "single") == "coop":
-        tester.write_text(json.dumps({"Multiplayer": 1}))
-    else:
-        tester.unlink(missing_ok=True)
+    # No tester.json: the co-op host gets its cabin from the real Host New Farm menu, like a player would.
+    (mods / "StardewArchipelago" / "tester.json").unlink(missing_ok=True)
     smoke = mods / "APSmokeTest"
     smoke.mkdir(exist_ok=True)
     built = HERE / "mod" / "bin" / "Release" / "net6.0"
@@ -355,15 +350,25 @@ def wait_for(pred, timeout, what, procs=()):
             return True
         for p in procs:
             if p.poll() is not None:
-                print(f"a game exited early while waiting for {what}")
+                print(f"a game (pid {p.pid}, exit {p.returncode}) exited early while waiting for {what}")
                 return False
         time.sleep(2)
     print(f"timed out waiting for {what}")
     return False
 
 
+COOP_TEAM_ITEMS = ["Resource Pack: 500 Money"]
+COOP_PER_FARMER_ITEMS = ["Progressive Backpack", "Fish Dumpling Recipe", "Friendship Bonus (2 <3)", "Henchman <3"]
+COOP_FARMHAND_CHECKS = ["Fishsanity: Gar", "Cook Fish Dumpling", "Craft Hedge Fence", "Shipsanity: Cucumber"]
+COOP_HOST_CHECKS = ["Fishsanity: Bonefish", "Cook Void Delight"]
+
+
 def run_coop(args, work):
-    """Host instance + farmhand instance of one testbed install on this PC, one AP slot, LAN at 127.0.0.1."""
+    """Host instance + farmhand instance of one testbed install on this PC, one AP slot, LAN at 127.0.0.1.
+
+    Session 1: new farm through Co-op > Host New Farm, farmhand joins, items sent from the server console, both farmers
+    sleep, open their mail, fire checks, sleep again (the game saves). Session 2: the host reloads that save, the farmhand
+    rejoins, and nothing may replay."""
     testbed = Path(args.testbed).resolve()
     if not (testbed / "StardewModdingAPI.exe").is_file():
         sys.exit(f"testbed not found: {testbed}")
@@ -374,6 +379,8 @@ def run_coop(args, work):
     flags = work / "flags"
     shutil.rmtree(flags, ignore_errors=True)
     flags.mkdir()
+    for old in work.glob("SMAPI-*.txt"):
+        old.unlink()
     if args.skip_generate:
         zip_path = next((work / "gen").glob("AP_*.zip"))
         locs = {int(k): v for k, v in json.loads((work / "locations.json").read_text()).items()}
@@ -386,12 +393,60 @@ def run_coop(args, work):
     fh_cfg.write_text(json.dumps({**base, "Role": "farmhand", "JoinAddress": "127.0.0.1", "ResultPath": str(work / "farmhand-result.json")}, indent=2))
     build_and_install(args, work, {**base, "ResultPath": str(work / "result.json")})
     clean_smoke_saves()
-    for f in (SMAPI_LOG, SMAPI_LOG2):
-        f.unlink(missing_ok=True)
     prepare_prefs(work)
-    server = host = farmhand = None
+    server = None
+    games = []
     server_log = work / "server.log"
-    ok_flow = False
+    state = {"n": 0, "ok": True}
+
+    def step(action, tag="", timeout=600):
+        if not state["ok"] and action != "quit":
+            return False                     # an earlier step failed: skip to quit
+        state["n"] += 1
+        n = state["n"]
+        (flags / "step.json").write_text(json.dumps({"N": n, "Action": action, "Tag": tag}))
+        print(f"step {n}: {action} {tag}")
+        ok = wait_for(lambda: all((flags / f"{r}.done.{n}").exists() for r in ("host", "farmhand")), timeout, f"step {n} {action} {tag}", games)
+        state["ok"] &= ok
+        return ok
+
+    def send(items):
+        for item in items:
+            server.stdin.write(f"/send {SLOT} {item}\n")
+            server.stdin.flush()
+            time.sleep(1)
+
+    def session(host_json, suffix):
+        """Start host then farmhand; returns True when both are in the world and connected."""
+        for f in (SMAPI_LOG, SMAPI_LOG2, flags / "host.ready.flag", flags / "farmhand.ready.flag", flags / "step.json"):
+            f.unlink(missing_ok=True)
+        host = launch_game(testbed, {"APSMOKE_CONFIG": str(host_json)})
+        games[:] = [host]
+        print(f"host{suffix} launched, pid", host.pid)
+        if not wait_for(lambda: (flags / "host.ready.flag").exists(), args.timeout, "host.ready.flag", games):
+            return False
+        time.sleep(10)                       # let the host finish its own AP connect + init before a farmhand asks
+        farmhand = launch_game(testbed, {"APSMOKE_CONFIG": str(fh_cfg)})   # SMAPI logs this one to SMAPI-latest.player-2.txt
+        games.append(farmhand)
+        print(f"farmhand{suffix} launched, pid", farmhand.pid)
+        if not wait_for(lambda: (flags / "farmhand.ready.flag").exists(), args.timeout, "farmhand.ready.flag", games):
+            return False
+        time.sleep(20)                       # handshake, connect and catch-up
+        return True
+
+    def end_session(suffix):
+        for g in games:
+            try:
+                g.wait(60)
+            except subprocess.TimeoutExpired:
+                pass
+        for g in games:
+            kill_tree(g)
+        time.sleep(3)
+        for src, role in ((SMAPI_LOG, "host"), (SMAPI_LOG2, "farmhand")):
+            if src.exists():
+                shutil.copy2(src, work / f"SMAPI-{role}{suffix}.txt")
+
     try:
         slog = open(server_log, "w", encoding="utf-8", errors="replace")
         server = subprocess.Popen([str(VENV_PY), "-u", "MultiServer.py", str(zip_path), "--port", str(args.port),
@@ -401,24 +456,43 @@ def run_coop(args, work):
             time.sleep(1)
             if "server started" in server_log.read_text(errors="replace").lower():
                 break
-        host = launch_game(testbed, {"APSMOKE_CONFIG": str(host_cfg)})
-        print("host launched, pid", host.pid)
-        if wait_for(lambda: (flags / "host.ready.flag").exists(), args.timeout, "host.ready.flag", [host]):
-            time.sleep(10)                       # let the host finish its own AP connect + init before a farmhand asks
-            smapi1 = SMAPI_LOG
-            farmhand = launch_game(testbed, {"APSMOKE_CONFIG": str(fh_cfg)})   # SMAPI logs this one to SMAPI-latest.player-2.txt
-            print("farmhand launched, pid", farmhand.pid)
-            if wait_for(lambda: (flags / "farmhand.ready.flag").exists(), args.timeout, "farmhand.ready.flag", [host, farmhand]):
-                time.sleep(15)                   # give the handshake + connect time
-                (flags / "fire.flag").write_text("go")
-                if wait_for(lambda: (flags / "fired.flag").exists(), 120, "fired.flag", [host, farmhand]):
-                    ok_flow = wait_for(lambda: '"locations"' in server_log.read_text(errors="replace") and _server_has_check(server_log, locs, "Fishsanity: Gar"),
-                                       60, "server to log the farmhand's check", [host, farmhand])
-        (flags / "finish.flag").write_text("go")
-        time.sleep(8)
+        if session(host_cfg, ""):
+            step("prep")
+            step("snap", "d1")
+            send(COOP_TEAM_ITEMS + COOP_PER_FARMER_ITEMS)
+            time.sleep(10)
+            step("snap", "d1b")
+            step("sleep", "night1", timeout=900)
+            step("snap", "d2pre")
+            step("mail")
+            step("snap", "d2")
+            step("fire")
+            time.sleep(10)
+            step("sleep", "night2", timeout=900)
+            step("snap", "d3")
+            step("quit")
+        else:
+            state["ok"] = False
+        end_session("")
+        save = None
+        try:
+            save = json.loads((flags / "host.snap.d3.json").read_text())["save"]
+        except (OSError, ValueError, KeyError):
+            pass
+        if save and state["ok"]:
+            host2_cfg = work / "host2.json"
+            host2_cfg.write_text(json.dumps({**base, "Role": "host", "LoadSave": save, "ResultPath": str(work / "host2-result.json")}, indent=2))
+            if session(host2_cfg, "2"):
+                step("snap", "r1")
+                step("mail")
+                step("snap", "r2")
+                step("quit")
+            end_session("2")
+        else:
+            print("skipping the reload session (session 1 did not finish)")
     finally:
-        kill_tree(farmhand)
-        kill_tree(host)
+        for g in games:
+            kill_tree(g)
         kill_tree(server)
         time.sleep(2)
         try:
@@ -426,10 +500,6 @@ def run_coop(args, work):
         except Exception:
             pass
         restore_prefs()
-        if SMAPI_LOG.exists():
-            shutil.copy2(SMAPI_LOG, work / "SMAPI-host.txt")
-        if SMAPI_LOG2.exists():
-            shutil.copy2(SMAPI_LOG2, work / "SMAPI-farmhand.txt")
     code = report_coop(work)
     left = process_running("StardewModdingAPI.exe") + process_running("Stardew Valley.exe")
     if left:
@@ -437,49 +507,112 @@ def run_coop(args, work):
     return code
 
 
+def _server_checked_ids(server_log):
+    checked = set()
+    for line in Path(server_log).read_text(errors="replace").splitlines():
+        if "Incoming message: " not in line or "LocationChecks" not in line:
+            continue
+        try:
+            for m in json.loads(line.split("Incoming message: ", 1)[1]):
+                if m.get("cmd") == "LocationChecks":
+                    checked.update(m["locations"])
+        except ValueError:
+            pass
+    return checked
+
+
 def _server_has_check(server_log, locs, name):
     ids = {v: k for k, v in locs.items()}
-    want = ids.get(name)
-    for line in server_log.read_text(errors="replace").splitlines():
-        if "Incoming message: " in line and "LocationChecks" in line and want is not None and str(want) in line:
-            return True
-    return False
+    return ids.get(name) in _server_checked_ids(server_log)
 
 
 def report_coop(work):
     locs = {int(k): v for k, v in json.loads((work / "locations.json").read_text()).items()}
+    flags = work / "flags"
     server = (work / "server.log").read_text(errors="replace")
-    logs = {r: (work / f"SMAPI-{r}.txt").read_text(errors="replace") if (work / f"SMAPI-{r}.txt").exists() else "" for r in ("host", "farmhand")}
+    logs = {r: (work / f"SMAPI-{r}.txt").read_text(errors="replace") if (work / f"SMAPI-{r}.txt").exists() else ""
+            for r in ("host", "farmhand", "host2", "farmhand2")}
     lines, ok = [], True
 
-    def mine_errors(text):
-        err = [l for l in text.splitlines() if re.match(r"\[\d\d:\d\d:\d\d ERROR ", l)]
-        return [l for l in err if ("StardewArchipelago" in l.split("]")[0] or "APSmokeTest" in l.split("]")[0])]
+    def check(cond, text):
+        nonlocal ok
+        ok &= bool(cond)
+        lines.append(("PASS  " if cond else "FAIL  ") + text)
+
+    def snap(role, tag):
+        try:
+            return json.loads((flags / f"{role}.snap.{tag}.json").read_text())
+        except (OSError, ValueError):
+            return None
+
     for role, text in logs.items():
-        mine = mine_errors(text)
-        unexpected = [l for l in mine if not any(k in l for k in KNOWN_BENIGN_ERRORS)]
-        lines.append(f"{role}: {len(mine)} ERROR from StardewArchipelago/APSmokeTest ({len(unexpected)} unexpected, rest known-benign)")
-        lines += ["   ERR " + l[:240] for l in unexpected[:10]]
-        ok &= not unexpected and bool(text)
+        err = [l for l in text.splitlines() if re.match(r"\[\d\d:\d\d:\d\d ERROR ", l) and ("StardewArchipelago" in l.split("]")[0] or "APSmokeTest" in l.split("]")[0])]
+        unexpected = [l for l in err if not any(k in l for k in KNOWN_BENIGN_ERRORS)]
+        check(text and not unexpected, f"{role} log: {len(err)} ERROR from StardewArchipelago/APSmokeTest, {len(unexpected)} unexpected" + ("" if text else " (LOG MISSING)"))
+        lines.extend("      ERR " + l[:240] for l in unexpected[:8])
+
     fh = logs["farmhand"]
-    joined = [l for l in fh.splitlines() if "Farmhand connected to Archipelago" in l]
-    sent = [l for l in logs["host"].splitlines() if "Sent the Archipelago connection info" in l]
-    lines.append(f"host handshake lines: {len(sent)}"); lines += ["   " + l[:200] for l in sent[:3]]
-    lines.append(f"farmhand connected lines: {len(joined)}"); lines += ["   " + l[:200] for l in joined[:3]]
-    conn_line = [l for l in fh.splitlines() if "Connected to Archipelago server as" in l]
-    lines.append(f"farmhand client connected line: {conn_line[0][:160] if conn_line else 'NOT FOUND'}")
-    ok &= bool(joined) and bool(sent) and bool(conn_line)
-    conns = [l for l in server.splitlines() if "Incoming message: " in l and '"cmd": "Connect"' in l.replace('"cmd":"Connect"', '"cmd": "Connect"')]
-    names = [re.search(r'"name": ?"([^"]*)"', l).group(1) for l in conns if re.search(r'"name": ?"([^"]*)"', l)]
-    lines.append(f"server Connect packets: {len(conns)} (slots: {names})")
-    ok &= len([n for n in names if n == SLOT]) >= 2
-    lines += ["   " + c.strip()[:160] for c in conns[:4]]
+    check("Farmhand connected to Archipelago" in fh, "farmhand connected through the host's handshake")
+    names = re.findall(r'"cmd": ?"Connect".*?"name": ?"([^"]*)"', server)
+    check(names.count(SLOT) >= 4, f"server Connect packets for {SLOT}: {names.count(SLOT)} (want >= 4: 2 games x 2 sessions)")
+    check("Host New Farm" in logs["host"] or "source HostNewFarm" in logs["host"], "host farm created through Co-op > Host New Farm")
+    cab = re.search(r"cabins=(\d+)", logs["host"])
+    check(cab and int(cab.group(1)) >= 1, f"cabins on the new farm without the tester override: {cab.group(1) if cab else 'NOT FOUND'}")
+
+    h1, f1, h1b, f1b = snap("host", "d1"), snap("farmhand", "d1"), snap("host", "d1b"), snap("farmhand", "d1b")
+    h2p, f2p, h2, f2 = snap("host", "d2pre"), snap("farmhand", "d2pre"), snap("host", "d2"), snap("farmhand", "d2")
+    h3, f3 = snap("host", "d3"), snap("farmhand", "d3")
+    r1h, r1f, r2h, r2f = snap("host", "r1"), snap("farmhand", "r1"), snap("host", "r2"), snap("farmhand", "r2")
+    have = all([h1, f1, h1b, f1b, h2p, f2p, h2, f2, h3, f3])
+    check(have, "session 1 snapshots written by both games")
+    if have:
+        def letters(s, word):
+            return [m for m in s["mailbox"] if word in m]
+        lines.append(f"      mailbox host d2pre: {h2p['mailbox']}")
+        lines.append(f"      mailbox farmhand d2pre: {f2p['mailbox']}")
+        check(len(letters(h2p, "Money")) == 1 and not letters(f2p, "Money"), f"team letter: money letter in host mailbox x{len(letters(h2p, 'Money'))}, farmhand x{len(letters(f2p, 'Money'))}")
+        for word in ("Backpack", "Dumpling", "Friendship_Bonus", "Henchman"):
+            alt = word.replace("_", " ")
+            hh = [m for m in h2p["mailbox"] if word in m or alt in m]
+            ff = [m for m in f2p["mailbox"] if word in m or alt in m]
+            check(len(hh) == 1 and len(ff) == 1, f"per-farmer letter '{alt}': host x{len(hh)}, farmhand x{len(ff)}")
+        delta = h2["money"] - h1b["money"]
+        check(delta == 500, f"money: host {h1b['money']} -> {h2['money']} (delta {delta}, want exactly one grant of 500); farmhand sees {f2['money']} (shared wallet)")
+        check(f2["money"] == h2["money"], "farmhand wallet equals host wallet after the mail")
+        bh, bf = h2["maxItems"] - h1["maxItems"], f2["maxItems"] - f1["maxItems"]
+        check(bh > 0 and bh == bf, f"backpack: host {h1['maxItems']} -> {h2['maxItems']}, farmhand {f1['maxItems']} -> {f2['maxItems']}")
+        check(not h1["knowsFishDumpling"] and not f1["knowsFishDumpling"] and h2["knowsFishDumpling"] and f2["knowsFishDumpling"],
+              f"recipe Fish Dumpling: host {h1['knowsFishDumpling']} -> {h2['knowsFishDumpling']}, farmhand {f1['knowsFishDumpling']} -> {f2['knowsFishDumpling']}")
+        check(h2["apFriendAbigail"] > h1["apFriendAbigail"] and f2["apFriendAbigail"] > f1["apFriendAbigail"],
+              f"friendship bonus (AP points, Abigail): host {h1['apFriendAbigail']} -> {h2['apFriendAbigail']}, farmhand {f1['apFriendAbigail']} -> {f2['apFriendAbigail']}")
+        check(h1["buildings"] == h3["buildings"] and h1["pets"] == h3["pets"],
+              f"world after two shared days: buildings {len(h1['buildings'])} -> {len(h3['buildings'])} {h3['buildings']}, pets {h1['pets']} -> {h3['pets']}")
+        check(f3["buildings"] == h3["buildings"], f"farmhand sees the same buildings as the host ({len(f3['buildings'])})")
+        lines.append(f"      cursors d3: farmhand {f3['cursor']}, host processed {h3['processedItems']}; farmhand apXpFishing {f3['apXpFishing']}")
+    for name in COOP_FARMHAND_CHECKS + COOP_HOST_CHECKS:
+        who = "farmhand" if name in COOP_FARMHAND_CHECKS else "host"
+        check(_server_has_check(work / "server.log", locs, name), f"server got {who}-fired check '{name}'")
     fired = [l for l in fh.splitlines() if "farmhand fired" in l]
-    lines.append("farmhand fired: " + (fired[0][:200] if fired else "NOT FOUND"))
-    ok &= bool(fired)
-    got = _server_has_check(work / "server.log", locs, "Fishsanity: Gar")
-    lines.append(f"server logged LocationChecks for 'Fishsanity: Gar': {got}")
-    ok &= got
+    lines.append("      " + (fired[0][fired[0].find("farmhand fired"):][:220] if fired else "farmhand fired: NOT FOUND"))
+
+    have2 = all([r1h, r1f, r2h, r2f]) and have
+    check(have2, "reload session snapshots written by both games")
+    if have2:
+        check(r2h["money"] == h3["money"], f"reload: money {h3['money']} -> {r2h['money']} (no replay)")
+        check(r2h["maxItems"] == h3["maxItems"] and r2f["maxItems"] == f3["maxItems"],
+              f"reload: backpack host {h3['maxItems']} -> {r2h['maxItems']}, farmhand {f3['maxItems']} -> {r2f['maxItems']}")
+        check(r1f["cursor"] == f3["cursor"] and r1f["cursor"] is not None, f"reload: farmhand cursor {f3['cursor']} -> {r1f['cursor']}")
+        check(r1h["processedItems"] == h3["processedItems"], f"reload: host processed items {h3['processedItems']} -> {r1h['processedItems']}")
+        for role, before, after in (("host", h3, r1h), ("farmhand", f3, r1f)):
+            old = [m for m in before["mailbox"] if "|" in m]
+            new = [m for m in after["mailbox"] + after["mailForTomorrow"] if "|" in m and m not in old]
+            check(not new, f"reload: no AP letters re-sent to the {role} ({len(old)} unopened from day 3 kept, {len(new)} new: {new[:3]})")
+        check(r1f["apXpFishing"] == f3["apXpFishing"] and f3["apXpFishing"] > 0, f"reload: farmhand AP fishing XP {f3['apXpFishing']} -> {r1f['apXpFishing']}")
+        check(r1f["apFriendAbigail"] == f3["apFriendAbigail"], f"reload: farmhand AP friendship {f3['apFriendAbigail']} -> {r1f['apFriendAbigail']}")
+        check(r2h["buildings"] == h3["buildings"] and r2h["pets"] == h3["pets"], f"reload: buildings {len(r2h['buildings'])}, pets {r2h['pets']}")
+    coop_lines = [l for t in logs.values() for l in t.splitlines() if "[coop]" in l or "caught up on received items" in l]
+    lines.append(f"client co-op item lines: {len(coop_lines)}")
+    lines.extend("      " + l[l.find("]") + 1:].strip()[:200] for l in coop_lines[:40])
     lines.append("")
     lines.append("COOP OVERALL: " + ("PASS" if ok else "FAIL"))
     text = "\n".join(lines)
